@@ -24,6 +24,14 @@ const STOCK_POOLS = {
 
 const CODE_PREFIX = ['600', '601', '603', '000', '002', '300', '688'];
 
+function getApiBase() {
+  try {
+    return window.localStorage.getItem('JIJIN_API_BASE')?.replace(/\/$/, '') || '';
+  } catch {
+    return '';
+  }
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -62,18 +70,23 @@ function withRealtimePulse(item, index) {
 }
 
 /**
- * 当前是前端 Mock 适配层。
- * 后续接入真实后端时，只需要把这里改成 fetch API。
+ * 当前默认使用前端 Mock 数据。
+ * 设置 localStorage.JIJIN_API_BASE 后会切换到真实后端，例如：http://localhost:8000
  */
 export function getSectorData(type) {
   return SECTOR_DATA[type] || [];
 }
 
 export async function fetchSectorHeatmap({ type = 'industry', realtime = true } = {}) {
-  // 真实接口示例：
-  // const response = await fetch(`/api/sector/heatmap?type=${type}&period=today`);
-  // if (!response.ok) throw new Error('获取板块热力图失败');
-  // return response.json();
+  const apiBase = getApiBase();
+
+  if (apiBase) {
+    const response = await fetch(`${apiBase}/api/sector/heatmap?type=${type}&period=today`);
+    if (!response.ok) throw new Error('获取真实板块热力图失败');
+    const payload = await response.json();
+    return payload.nodes || [];
+  }
+
   const data = clone(getSectorData(type));
   if (!realtime) return data;
   tick += 1;
@@ -81,10 +94,15 @@ export async function fetchSectorHeatmap({ type = 'industry', realtime = true } 
 }
 
 export async function fetchSectorStocks(sector) {
-  // 真实接口示例：
-  // const response = await fetch(`/api/sector/${sector.id}/stocks`);
-  // if (!response.ok) throw new Error('获取板块成份股失败');
-  // return response.json();
+  const apiBase = getApiBase();
+
+  if (apiBase) {
+    const response = await fetch(`${apiBase}/api/sector/${encodeURIComponent(sector.id)}/stocks?type=${sector.type || 'industry'}`);
+    if (!response.ok) throw new Error('获取真实板块成份股失败');
+    const payload = await response.json();
+    return payload.stocks || [];
+  }
+
   const pool = STOCK_POOLS[sector.category] || STOCK_POOLS.TMT;
   const spreadBias = sector.changePct / 3;
 
@@ -105,6 +123,10 @@ export async function fetchSectorStocks(sector) {
       role: index === 0 ? '核心龙头' : index < 3 ? '资金前排' : index < 6 ? '弹性跟随' : '观察标的',
     };
   });
+}
+
+export function getDataModeLabel() {
+  return getApiBase() ? '真实接口' : 'Mock 模拟';
 }
 
 export const SECTOR_API_CONTRACT = {
