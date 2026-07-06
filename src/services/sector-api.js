@@ -47,6 +47,14 @@ function jitter(seed, range) {
   return wave + random;
 }
 
+function parseEtfCode(label) {
+  return String(label || '').match(/\b\d{6}\b/)?.[0] || '';
+}
+
+function getEtfName(label) {
+  return String(label || '').replace(/^\d{6}\s*/, '').trim() || 'ETF';
+}
+
 function withRealtimePulse(item, index) {
   const changeDelta = jitter(index, 0.16);
   const fundDelta = jitter(index + 9, 0.48);
@@ -99,6 +107,22 @@ function getMockStocks(sector) {
   });
 }
 
+function getMockEtfQuotes(labels = []) {
+  return labels.map((label, index) => {
+    const code = parseEtfCode(label);
+    const changePct = round(jitter(index + 71, 2.2), 2);
+    return {
+      code,
+      name: getEtfName(label),
+      price: round(0.8 + Math.abs(jitter(index + 81, 0.42)), 4),
+      changePct,
+      amount: round(Math.max(0.8, 8 + jitter(index + 91, 7.2)), 1),
+      premiumRate: round(jitter(index + 101, 0.32), 2),
+      updatedAt: Date.now(),
+    };
+  });
+}
+
 /**
  * 当前默认使用前端 Mock 数据。
  * 设置 localStorage.JIJIN_API_BASE 后会切换到真实后端，例如：http://localhost:8000
@@ -141,6 +165,25 @@ export async function fetchSectorStocks(sector) {
   return getMockStocks(sector);
 }
 
+export async function fetchEtfQuotes(labels = []) {
+  const uniqueLabels = [...new Set(labels.filter(Boolean))];
+  const codes = uniqueLabels.map(parseEtfCode).filter(Boolean);
+  const apiBase = getApiBase();
+
+  if (apiBase && codes.length) {
+    try {
+      const response = await fetch(`${apiBase}/api/etf/quotes?codes=${codes.join(',')}`);
+      if (!response.ok) throw new Error('获取真实 ETF 行情失败');
+      const payload = await response.json();
+      return payload.quotes || [];
+    } catch (error) {
+      console.warn('真实 ETF 行情不可用，已回退到 Mock 数据：', error);
+    }
+  }
+
+  return getMockEtfQuotes(uniqueLabels);
+}
+
 export function getDataModeLabel() {
   return getApiBase() ? '真实接口' : 'Mock 模拟';
 }
@@ -149,4 +192,5 @@ export const SECTOR_API_CONTRACT = {
   heatmap: '/api/sector/heatmap?type=industry&period=today&metric=change',
   detail: '/api/sector/:code/detail',
   stocks: '/api/sector/:code/stocks',
+  etfQuotes: '/api/etf/quotes?codes=512480,159995',
 };
