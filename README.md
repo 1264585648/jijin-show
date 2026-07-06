@@ -6,7 +6,7 @@
 
 ## 当前进展
 
-已完成第四版 **板块实时热力图 MVP**：
+已完成第七版 **板块实时热力图 MVP**：
 
 - 行业板块 / 概念板块切换
 - 涨跌热力 / 资金热力 / 综合热度切换
@@ -14,12 +14,16 @@
 - 板块搜索过滤
 - 涨幅榜、主力流入榜、异动板块榜
 - ETF 观察池：根据当前板块热度、资金、涨幅、扩散度生成可观察基金列表
+- ETF 实时行情接入：支持涨跌幅、成交额、溢折价字段
+- ETF 流动性过滤：成交额过低的 ETF 会被降权并排序靠后
+- ETF 溢折价风险提示：高溢折价会显示「溢价谨慎」并扣分
 - 热力图 Tooltip
 - 手动刷新和 15 秒自动刷新
 - 模拟实时行情脉冲，刷新时板块涨跌、成交额、资金流、上涨家数会动态变化
 - 点击板块查看详情标签页：板块概览、成份股、相关 ETF、资金结构
-- 新增 FastAPI 后端适配器，可通过 AKShare 获取真实行业 / 概念板块行情、资金流和成份股
+- 新增 FastAPI 后端适配器，可通过 AKShare 获取真实行业 / 概念板块行情、资金流、成份股和 ETF 行情
 - 前端支持 Mock / 真实接口一键切换
+- Docker Compose 一键启动、冒烟测试、基础 CI
 - 纯静态页面可部署到 GitHub Pages / Cloudflare Pages，后端可单独部署
 
 ## 运行方式一：只跑前端 Mock
@@ -100,6 +104,20 @@ localStorage.removeItem('JIJIN_API_BASE');
 location.reload();
 ```
 
+## 运行方式三：Docker Compose
+
+```bash
+docker compose up --build
+```
+
+默认服务：
+
+| 服务 | 地址 |
+| --- | --- |
+| 前端 | `http://localhost:5173` |
+| 后端 | `http://localhost:8000` |
+| 健康检查 | `http://localhost:8000/api/health` |
+
 ## 后端接口
 
 | 接口 | 说明 |
@@ -109,6 +127,7 @@ location.reload();
 | `GET /api/sector/heatmap?type=concept&period=today` | 概念板块热力图数据 |
 | `GET /api/sector/{sector_code}/stocks?type=industry` | 行业板块成份股 |
 | `GET /api/sector/{sector_code}/stocks?type=concept` | 概念板块成份股 |
+| `GET /api/etf/quotes?codes=512480,159995,515230` | ETF 实时行情 |
 
 ## 项目定位
 
@@ -132,6 +151,9 @@ location.reload();
 | [docs/ingestion-plan.md](docs/ingestion-plan.md) | 第一阶段采集计划、任务编排、缓存策略、异常处理 |
 | [docs/heatmap-mvp.md](docs/heatmap-mvp.md) | 板块实时热力图实现说明、指标和后续接入计划 |
 | [docs/etf-mapping.md](docs/etf-mapping.md) | 板块到 ETF / 指数基金的映射规则、评分和后续扩展 |
+| [docs/etf-realtime-quotes.md](docs/etf-realtime-quotes.md) | ETF 实时行情接入和观察池评分增强 |
+| [docs/etf-risk-filtering.md](docs/etf-risk-filtering.md) | ETF 流动性与溢折价风险过滤设计 |
+| [docs/deployment.md](docs/deployment.md) | 部署、Docker Compose、冒烟测试和常见问题 |
 | [server/README.md](server/README.md) | FastAPI + AKShare 后端接口说明 |
 | [config/data-sources.example.yaml](config/data-sources.example.yaml) | 数据源配置模板，后续可直接用于采集服务 |
 
@@ -152,7 +174,7 @@ Tushare Pro：后期稳定归档层，有积分和权限门槛
 | 优先级 | 页面 | 价值 |
 | --- | --- | --- |
 | P0 | 板块实时热力图 | 一眼看清行业 / 概念板块涨跌、资金、成交和扩散度 |
-| P0 | ETF / 指数基金观察池 | 把板块资金流映射到可观察基金 |
+| P0 | ETF / 指数基金观察池 | 把板块资金流映射到可观察基金，并过滤流动性与溢折价风险 |
 | P0 | 大盘资金概览 | 看市场整体强弱、主力净流入方向 |
 | P0 | 行业板块资金流 | 看资金正在攻击哪些行业 |
 | P0 | 概念板块资金流 | 看主题热点和短线资金方向 |
@@ -211,10 +233,23 @@ Tushare Pro：后期稳定归档层，有积分和权限门槛
 观察池评分：
 
 ```text
-ETF score = hotScore + mainNetInRatio * 2 + changePct * 1.8 + riseRatio * 0.08
+ETF score =
+  hotScore
++ mainNetInRatio * 2
++ changePct * 1.8
++ riseRatio * 0.08
++ ETF 行情加成
+- 流动性惩罚
+- 溢折价风险惩罚
 ```
 
-后续真实版本建议维护 `sector_etf_map` 表，并合并 ETF 实时涨跌幅、成交额、基金规模和溢折价。
+风险信号优先级：
+
+```text
+流动性不足 > 溢价谨慎 > 高热观察 > 加入观察 > 低优先级
+```
+
+后续真实版本建议维护 `sector_etf_map` 表，并合并 ETF 实时涨跌幅、成交额、基金规模、溢折价、费率和基金公司等信息。
 
 ## 数据使用原则
 
@@ -228,10 +263,13 @@ ETF score = hotScore + mainNetInRatio * 2 + changePct * 1.8 + riseRatio * 0.08
 
 ```text
 jijin-show/
+├── .github/                 # GitHub Actions CI
 ├── config/                  # 数据源、任务、环境配置模板
-├── docs/                    # 数据源、数据资产、采集计划
+├── docs/                    # 数据源、数据资产、采集计划、部署文档
 ├── data/                    # 本地数据目录，仅放 README，不提交数据文件
+├── scripts/                 # 冒烟测试等脚本
 ├── server/                  # FastAPI + AKShare 后端适配器
+│   ├── Dockerfile
 │   ├── main.py
 │   ├── requirements.txt
 │   └── README.md
@@ -240,14 +278,16 @@ jijin-show/
 │   ├── services/            # 前端数据适配层
 │   ├── main.js              # 热力图交互逻辑
 │   ├── styles.css           # 页面基础样式
-│   └── realtime.css         # 自动刷新、详情页、成份股等增强样式
+│   ├── realtime.css         # 自动刷新、详情页、成份股等增强样式
+│   └── etf-quotes.css       # ETF 行情字段样式
+├── docker-compose.yml       # 本地一键启动
 ├── index.html               # 当前静态前端入口
-└── web/                     # 后续如果引入 Vite / React，可迁移到该目录
+└── package.json             # 前端模块语法校验脚本
 ```
 
 ## 下一步建议
 
-1. 增加 ETF 实时行情接口，把观察池从规则评分升级为「板块热度 + ETF 交易状态」。
+1. 增加「隐藏低流动性 ETF」开关和最低成交额筛选项。
 2. 增加板块分时走势弹窗。
 3. 增加“异动板块”独立筛选视图，例如强势共振、资金抢筹、高位分歧、板块退潮。
 4. 用 `sector_flow_rank_daily` 和 `fund_index_master` 做第一版「板块资金流 -> ETF / 指数基金」映射归档。
