@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install backend dependencies
+        working-directory: server
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate FastAPI app import
+        working-directory: server
+        run: |
+          python - <<'PY'
+          import main
+          assert main.app.title
+          print('FastAPI app import ok:', main.app.title)
+          PY
+
+      - name: Validate frontend modules
+        run: |
+          node --check src/main.js
+          node --check src/services/sector-api.js
+          node --check src/data/etf-map.js
+          node --check src/data-mode-status.js
