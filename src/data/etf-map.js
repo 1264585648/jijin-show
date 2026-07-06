@@ -80,6 +80,13 @@ const ETF_RULES = [
   },
 ];
 
+const LIQUIDITY_RULES = [
+  { minAmount: 20, level: 'high', label: '高流动性', penalty: 0 },
+  { minAmount: 5, level: 'medium', label: '流动性尚可', penalty: 0 },
+  { minAmount: 1, level: 'low', label: '低流动性', penalty: 8 },
+  { minAmount: 0, level: 'weak', label: '流动性不足', penalty: 18 },
+];
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -110,11 +117,54 @@ export function buildEtfQuoteMap(quotes = []) {
   return new Map(quotes.filter((quote) => quote?.code).map((quote) => [String(quote.code), quote]));
 }
 
+export function classifyEtfQuote(quote) {
+  if (!quote) {
+    return {
+      liquidityLevel: 'unknown',
+      liquidityLabel: '等待行情',
+      premiumRisk: 'unknown',
+      premiumLabel: '溢折待确认',
+      riskTags: ['等待行情'],
+      scorePenalty: 0,
+      tradable: true,
+    };
+  }
+
+  const amount = Number(quote.amount || 0);
+  const premiumAbs = Math.abs(Number(quote.premiumRate || 0));
+  const liquidityRule = LIQUIDITY_RULES.find((rule) => amount >= rule.minAmount) || LIQUIDITY_RULES.at(-1);
+  const premiumRisk = premiumAbs >= 1.5 ? 'high' : premiumAbs >= 0.6 ? 'medium' : 'normal';
+  const premiumLabel = premiumRisk === 'high' ? '高溢折风险' : premiumRisk === 'medium' ? '溢折偏高' : '溢折正常';
+  const premiumPenalty = premiumRisk === 'high' ? 12 : premiumRisk === 'medium' ? 5 : 0;
+  const riskTags = [liquidityRule.label, premiumLabel];
+
+  if (quote.changePct > 5 && premiumRisk !== 'normal') riskTags.push('追高谨慎');
+  if (amount < 1) riskTags.push('小额成交');
+
+  return {
+    liquidityLevel: liquidityRule.level,
+    liquidityLabel: liquidityRule.label,
+    premiumRisk,
+    premiumLabel,
+    riskTags,
+    scorePenalty: liquidityRule.penalty + premiumPenalty,
+    tradable: amount >= 1,
+  };
+}
+
 function getQuoteForLabel(label, quoteMap) {
   const code = parseEtfCode(label);
   if (!code || !quoteMap) return null;
   if (quoteMap instanceof Map) return quoteMap.get(code) || null;
   return quoteMap[code] || null;
+}
+
+function getSignal(score, quoteInfo) {
+  if (quoteInfo?.liquidityLevel === 'weak') return '流动性不足';
+  if (quoteInfo?.premiumRisk === 'high') return '溢价谨慎';
+  if (score >= 78) return '高热观察';
+  if (score >= 62) return '加入观察';
+  return '低优先级';
 }
 
 export function buildEtfWatchlist(sectors = [], quoteMap = new Map()) {
@@ -125,24 +175,33 @@ export function buildEtfWatchlist(sectors = [], quoteMap = new Map()) {
     etfs.forEach((etf) => {
       const label = normalizeEtfLabel(etf);
       const quote = getQuoteForLabel(label, quoteMap);
+      const quoteInfo = classifyEtfQuote(quote);
       const prev = bucket.get(label) || {
         label,
         code: parseEtfCode(label),
         quote,
+        quoteInfo,
         score: 0,
         hotScore: 0,
         fund: 0,
         sectors: [],
       };
 
-      const quoteBonus = quote ? clamp(quote.changePct * 1.5 + Math.log10((quote.amount || 0) + 1) * 2 - Math.abs(quote.premiumRate || 0) * 1.2, -8, 12) : 0;
-      const score = clamp(sector.hotScore + sector.mainNetInRatio * 2 + sector.changePct * 1.8 + sector.riseRatio * 0.08 + quoteBonus, 0, 100);
+      const quoteBonus = quote
+        ? clamp(quote.changePct * 1.5 + Math.log10((quote.amount || 0) + 1) * 2 - Math.abs(quote.premiumRate || 0) * 1.2, -8, 12)
+        : 0;
+      const score = clamp(
+        sector.hotScore + sector.mainNetInRatio * 2 + sector.changePct * 1.8 + sector.riseRatio * 0.08 + quoteBonus - quoteInfo.scorePenalty,
+        0,
+        100,
+      );
 
       prev.score = Math.max(prev.score, score);
       prev.hotScore = Math.max(prev.hotScore, sector.hotScore);
       prev.fund += sector.mainNetIn;
       prev.sectors.push(sector.name);
       prev.quote = prev.quote || quote;
+      prev.quoteInfo = prev.quoteInfo || quoteInfo;
       bucket.set(label, prev);
     });
   });
@@ -151,9 +210,13 @@ export function buildEtfWatchlist(sectors = [], quoteMap = new Map()) {
     .map((item) => ({
       ...item,
       sectors: [...new Set(item.sectors)].slice(0, 3),
-      signal: item.score >= 78 ? '高热观察' : item.score >= 62 ? '加入观察' : '低优先级',
+      signal: getSignal(item.score, item.quoteInfo),
     }))
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => {
+      const aPenalty = a.quoteInfo?.tradable === false ? 1 : 0;
+      const bPenalty = b.quoteInfo?.tradable === false ? 1 : 0;
+      return aPenalty - bPenalty || b.score - a.score;
+    })
     .slice(0, 8);
 }
 
