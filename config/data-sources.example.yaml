@@ -1,0 +1,297 @@
+# 数据源配置模板
+# 复制为 config/data-sources.yaml 后按需修改。
+# 注意：不要把真实 token、cookie、付费数据权限提交到仓库。
+
+version: 1
+project: jijin-show
+timezone: Asia/Shanghai
+
+storage:
+  engine: duckdb
+  database: data/local/jijin_show.duckdb
+  raw_dir: data/raw
+  processed_dir: data/processed
+  frontend_export_dir: public/data
+
+providers:
+  akshare:
+    enabled: true
+    priority: p0
+    type: python_package
+    package: akshare
+    install: pip install akshare
+    reliability: A
+    description: 主数据源，覆盖基金、ETF、A 股行情、板块资金流、个股资金流。
+    rate_limit:
+      min_interval_seconds: 1
+      max_retries: 3
+      backoff_seconds: 3
+    endpoints:
+      fund_master:
+        method: fund_name_em
+        asset: fund_master
+        refresh: daily_or_weekly
+        stage: p0
+      fund_index_master:
+        method: fund_info_index_em
+        asset: fund_index_master
+        refresh: daily_after_close
+        stage: p0
+        params:
+          symbol:
+            - 全部
+            - 沪深指数
+            - 行业主题
+            - 大盘指数
+            - 中盘指数
+            - 小盘指数
+            - 股票指数
+            - 债券指数
+          indicator:
+            - 全部
+            - 被动指数型
+            - 增强指数型
+      fund_nav_daily:
+        method: fund_open_fund_daily_em
+        asset: fund_nav_daily
+        refresh: daily_after_20_30
+        stage: p0
+      etf_market_daily:
+        method: fund_etf_fund_daily_em
+        asset: etf_market_daily
+        refresh: daily_after_20_30
+        stage: p0
+      fund_stock_holding:
+        method: fund_portfolio_hold_em
+        asset: fund_stock_holding
+        refresh: quarterly
+        stage: p1
+      fund_industry_allocation:
+        method: fund_portfolio_industry_allocation_em
+        asset: fund_industry_allocation
+        refresh: quarterly
+        stage: p1
+      fund_aum_trend:
+        method: fund_aum_trend_em
+        asset: fund_aum_trend
+        refresh: monthly
+        stage: p2
+      stock_quote_snapshot:
+        method: stock_zh_a_spot_em
+        asset: stock_quote_snapshot
+        refresh: intraday_low_frequency
+        stage: p1
+      stock_sse_summary:
+        method: stock_sse_summary
+        asset: market_summary_daily
+        refresh: daily_after_close
+        stage: p2
+      stock_szse_summary:
+        method: stock_szse_summary
+        asset: market_summary_daily
+        refresh: daily_after_close
+        stage: p2
+      sector_flow_rank:
+        method: stock_sector_fund_flow_rank
+        asset: sector_flow_rank_daily
+        refresh: intraday_low_frequency_and_after_close
+        stage: p0
+        params:
+          indicator:
+            - 今日
+            - 5日
+            - 10日
+          sector_type:
+            - 行业资金流
+            - 概念资金流
+            - 地域资金流
+      sector_flow_history:
+        method: stock_sector_fund_flow_hist
+        asset: sector_flow_history
+        refresh: daily_after_close
+        stage: p1
+      concept_flow_history:
+        method: stock_concept_fund_flow_hist
+        asset: sector_flow_history
+        refresh: daily_after_close
+        stage: p1
+      stock_flow_rank:
+        method: stock_individual_fund_flow_rank
+        asset: stock_flow_rank_daily
+        refresh: intraday_low_frequency_and_after_close
+        stage: p1
+        params:
+          indicator:
+            - 今日
+            - 3日
+            - 5日
+            - 10日
+      main_fund_flow:
+        method: stock_main_fund_flow
+        asset: stock_flow_rank_daily
+        refresh: intraday_low_frequency_and_after_close
+        stage: p1
+        params:
+          symbol:
+            - 全部股票
+            - 沪深A股
+            - 沪市A股
+            - 科创板
+            - 深市A股
+            - 创业板
+
+  efinance:
+    enabled: false
+    priority: p1
+    type: python_package
+    package: efinance
+    install: pip install efinance
+    reliability: B
+    description: 备用行情源，补充基金、股票、ETF 历史和实时行情。
+    endpoints:
+      stock_realtime_quotes:
+        method: ef.stock.get_realtime_quotes
+        asset: stock_quote_snapshot
+        refresh: fallback_only
+        stage: p1
+      stock_or_etf_history:
+        method: ef.stock.get_quote_history
+        asset: etf_market_daily
+        refresh: fallback_only
+        stage: p1
+      fund_history:
+        method: ef.fund.get_quote_history
+        asset: fund_nav_daily
+        refresh: fallback_only
+        stage: p1
+
+  qstock:
+    enabled: false
+    priority: p2
+    type: python_package
+    package: qstock
+    install: pip install qstock
+    reliability: B
+    description: 研究和可视化参考，不作为核心生产采集源。
+
+  tushare:
+    enabled: false
+    priority: p1_later
+    type: python_package
+    package: tushare
+    install: pip install tushare
+    reliability: S_or_A_by_permission
+    description: 后期标准化归档层，需要 token、积分或独立权限。
+    env:
+      token: TUSHARE_TOKEN
+    endpoints:
+      fund_basic:
+        method: fund_basic
+        asset: fund_master
+        refresh: daily_or_weekly
+        stage: later
+      fund_bar:
+        method: pro_bar(asset="FD")
+        asset: fund_nav_daily
+        refresh: daily_after_close
+        stage: later
+      moneyflow_dc:
+        method: moneyflow_dc
+        asset: stock_flow_rank_daily
+        refresh: daily_after_close
+        stage: later
+      moneyflow_ind_dc:
+        method: moneyflow_ind_dc
+        asset: sector_flow_rank_daily
+        refresh: daily_after_close
+        stage: later
+
+jobs:
+  collect_fund_master:
+    enabled: true
+    provider: akshare
+    endpoint: fund_master
+    schedule: "30 20 * * 1-5"
+    output: fund_master
+
+  collect_fund_index_master:
+    enabled: true
+    provider: akshare
+    endpoint: fund_index_master
+    schedule: "35 20 * * 1-5"
+    output: fund_index_master
+
+  collect_fund_nav_daily:
+    enabled: true
+    provider: akshare
+    endpoint: fund_nav_daily
+    schedule: "40 20 * * 1-5"
+    output: fund_nav_daily
+
+  collect_etf_market_daily:
+    enabled: true
+    provider: akshare
+    endpoint: etf_market_daily
+    schedule: "45 20 * * 1-5"
+    output: etf_market_daily
+
+  collect_sector_flow_rank_close:
+    enabled: true
+    provider: akshare
+    endpoint: sector_flow_rank
+    schedule: "10 15 * * 1-5"
+    output: sector_flow_rank_daily
+
+  collect_sector_flow_rank_after_close:
+    enabled: true
+    provider: akshare
+    endpoint: sector_flow_rank
+    schedule: "50 20 * * 1-5"
+    output: sector_flow_rank_daily
+
+  collect_stock_flow_rank_after_close:
+    enabled: true
+    provider: akshare
+    endpoint: stock_flow_rank
+    schedule: "55 20 * * 1-5"
+    output: stock_flow_rank_daily
+
+  build_fund_sector_mapping:
+    enabled: false
+    provider: internal
+    depends_on:
+      - collect_fund_index_master
+      - collect_sector_flow_rank_after_close
+    schedule: "10 21 * * 1-5"
+    output: fund_sector_mapping
+
+frontend_exports:
+  market_overview:
+    enabled: true
+    inputs:
+      - sector_flow_rank_daily
+      - stock_flow_rank_daily
+    output: public/data/market-overview.json
+
+  sector_flow_rank:
+    enabled: true
+    inputs:
+      - sector_flow_rank_daily
+      - sector_flow_history
+    output: public/data/sector-flow-rank.json
+
+  etf_watchlist:
+    enabled: true
+    inputs:
+      - fund_index_master
+      - etf_market_daily
+      - sector_flow_rank_daily
+      - fund_sector_mapping
+    output: public/data/etf-watchlist.json
+
+risk_control:
+  do_not_expose_third_party_api_to_frontend: true
+  keep_last_successful_snapshot: true
+  mark_stale_data: true
+  require_source_and_fetched_at: true
+  no_investment_advice: true
