@@ -1,5 +1,5 @@
-import { fetchSectorHeatmap, fetchSectorStocks } from './services/sector-api.js';
-import { buildEtfWatchlist, matchSectorEtfs, normalizeEtfLabel } from './data/etf-map.js';
+import { fetchEtfQuotes, fetchSectorHeatmap, fetchSectorStocks } from './services/sector-api.js';
+import { buildEtfQuoteMap, buildEtfWatchlist, collectEtfLabelsFromSectors, matchSectorEtfs, normalizeEtfLabel } from './data/etf-map.js';
 
 const REFRESH_INTERVAL_SECONDS = 15;
 
@@ -11,6 +11,7 @@ const state = {
   selectedId: null,
   activeTab: 'overview',
   rawData: [],
+  etfQuotes: new Map(),
   autoRefresh: true,
   countdown: REFRESH_INTERVAL_SECONDS,
   isLoading: false,
@@ -290,24 +291,29 @@ function renderRankBlock(block) {
 }
 
 function renderEtfWatchlist(data) {
-  const watchlist = buildEtfWatchlist(data);
+  const watchlist = buildEtfWatchlist(data, state.etfQuotes);
   if (!watchlist.length) return '';
 
   return `
     <section class="rank-block etf-watch-block">
-      <div class="rank-title"><strong>ETF 观察池</strong><span>Top ${watchlist.length}</span></div>
+      <div class="rank-title"><strong>ETF 观察池</strong><span>含行情</span></div>
       ${watchlist
         .map(
-          (item, index) => `
-          <div class="etf-watch-item">
-            <span class="rank-no">${index + 1}</span>
-            <div>
-              <div class="rank-name">${item.label}</div>
-              <div class="rank-meta">${item.signal} · ${item.sectors.join(' / ')}</div>
-            </div>
-            <strong class="rank-value ${classByValue(item.fund)}">${item.score.toFixed(0)}</strong>
-          </div>
-        `,
+          (item, index) => {
+            const quote = item.quote;
+            const quoteText = quote ? `${formatPercent(quote.changePct)} · ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}` : '等待 ETF 行情';
+            return `
+              <div class="etf-watch-item">
+                <span class="rank-no">${index + 1}</span>
+                <div>
+                  <div class="rank-name">${quote?.code || item.code} ${quote?.name || item.label.replace(/^\d{6}\s*/, '')}</div>
+                  <div class="rank-meta">${item.signal} · ${item.sectors.join(' / ')}</div>
+                  <div class="etf-quote-line ${quote ? classByValue(quote.changePct) : 'neutral'}">${quoteText}</div>
+                </div>
+                <strong class="rank-value ${classByValue(item.fund)}">${item.score.toFixed(0)}</strong>
+              </div>
+            `;
+          },
         )
         .join('')}
     </section>
@@ -463,19 +469,20 @@ function renderEtfTab(item) {
     <section class="detail-section full-section">
       <div class="table-headline">
         <h3>相关 ETF / 基金观察</h3>
-        <span>用于把板块热度转成可观察基金入口</span>
+        <span>板块热度 + ETF 行情</span>
       </div>
       <div class="etf-card-list">
         ${etfs
           .map((etf, index) => {
             const label = normalizeEtfLabel(etf);
-            const score = clamp(item.hotScore - index * 7 + item.mainNetInRatio * 1.5, 0, 100);
+            const quote = buildEtfWatchlist([{ ...item, relatedEtfs: [label] }], state.etfQuotes)[0]?.quote;
+            const score = clamp(item.hotScore - index * 7 + item.mainNetInRatio * 1.5 + (quote?.changePct || 0) * 1.5, 0, 100);
             const signal = score >= 75 ? '高热度' : score >= 58 ? '可观察' : '低优先级';
             return `
               <article class="etf-card">
                 <div>
-                  <strong>${label}</strong>
-                  <span>${signal} · 映射板块：${item.name}</span>
+                  <strong>${quote?.code || label.match(/\d{6}/)?.[0] || ''} ${quote?.name || label.replace(/^\d{6}\s*/, '')}</strong>
+                  <span>${signal} · ${quote ? `${formatPercent(quote.changePct)} · 成交 ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}` : '等待 ETF 行情'}</span>
                 </div>
                 <div class="etf-score ${score >= 70 ? 'positive' : 'neutral'}">${score.toFixed(0)}</div>
               </article>
@@ -483,7 +490,7 @@ function renderEtfTab(item) {
           })
           .join('')}
       </div>
-      <p class="summary-note">当前使用本地映射字典，真实版本建议合并 ETF 实时成交额、涨跌幅、溢折价和基金规模。</p>
+      <p class="summary-note">真实接口开启后会合并 ETF 实时涨跌幅、成交额和溢折价；未开启时使用模拟行情。</p>
     </section>
   `;
 }
@@ -556,6 +563,12 @@ async function ensureStocksForSelected() {
   if (current?.id === item.id) renderDetail(current);
 }
 
+async function refreshEtfQuotes(data) {
+  const labels = collectEtfLabelsFromSectors(data);
+  const quotes = await fetchEtfQuotes(labels);
+  state.etfQuotes = buildEtfQuoteMap(quotes);
+}
+
 function selectSector(id) {
   state.selectedId = id;
   const data = getCurrentData();
@@ -595,6 +608,7 @@ async function loadData({ preserveSelected = true, realtime = true } = {}) {
   updateRefreshUI();
   const selectedBeforeLoad = state.selectedId;
   state.rawData = await fetchSectorHeatmap({ type: state.type, realtime });
+  await refreshEtfQuotes(state.rawData.map(enrichSector));
   state.isLoading = false;
   state.countdown = REFRESH_INTERVAL_SECONDS;
 
