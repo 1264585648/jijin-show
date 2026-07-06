@@ -17,6 +17,15 @@
 - 点击板块查看详情、资金结构、扩散度、领涨股、相关 ETF
 - 纯静态页面，可部署到 GitHub Pages / Cloudflare Pages
 
+已补齐第一版 **真实数据采集骨架**：
+
+- AKShare 采集器
+- 基金 / ETF / 板块资金流 / 个股资金流标准化
+- DuckDB 本地落库
+- 前端 JSON 导出
+- 板块热度分计算
+- 命令行入口
+
 ## 本地预览
 
 因为当前页面使用了 ES Module，建议使用本地静态服务预览。
@@ -36,6 +45,58 @@ http://localhost:5173
 ```bash
 npx serve .
 ```
+
+## 数据采集快速开始
+
+安装 Python 运行环境：
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+Windows PowerShell：
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
+```
+
+查看当前支持的数据资产：
+
+```bash
+jijin-show assets
+```
+
+采集单个资产：
+
+```bash
+jijin-show collect sector_flow_rank_daily
+```
+
+采集全部 MVP 资产：
+
+```bash
+jijin-show collect all
+```
+
+生成大盘概览 JSON：
+
+```bash
+jijin-show overview
+```
+
+默认输出：
+
+```text
+data/local/jijin_show.duckdb
+public/data/market-overview.json
+public/data/sector_heat_score.json
+```
+
+更多说明见 [docs/development.md](docs/development.md)。
 
 ## 项目定位
 
@@ -57,6 +118,7 @@ npx serve .
 | [docs/data-sources.md](docs/data-sources.md) | 可依赖的数据接口、开源项目、接入优先级、风险说明 |
 | [docs/data-assets.md](docs/data-assets.md) | 推荐沉淀的数据资产、指标资产、页面资产、数据表结构 |
 | [docs/ingestion-plan.md](docs/ingestion-plan.md) | 第一阶段采集计划、任务编排、缓存策略、异常处理 |
+| [docs/development.md](docs/development.md) | 本地安装、采集命令、JSON 导出、常见问题 |
 | [config/data-sources.example.yaml](config/data-sources.example.yaml) | 数据源配置模板，后续可直接用于采集服务 |
 
 ## 推荐数据源组合
@@ -150,12 +212,14 @@ GET /api/sector/:code/stocks
 ```text
 jijin-show/
 ├── config/                  # 数据源、任务、环境配置模板
-├── docs/                    # 数据源、数据资产、采集计划
+├── docs/                    # 数据源、数据资产、采集计划、开发说明
 ├── data/                    # 本地数据目录，仅放 README，不提交数据文件
-├── src/                     # 当前静态页面代码，后续也可迁移为 web/src
+├── src/
+│   ├── jijin_show/          # Python 数据采集、清洗、存储、导出工具包
 │   ├── data/                # Mock 数据和后续前端适配层
 │   ├── main.js              # 热力图交互逻辑
 │   └── styles.css           # 页面样式
+├── scripts/                 # 命令行辅助脚本
 ├── index.html               # 当前静态前端入口
 └── web/                     # 后续如果引入 Vite / React，可迁移到该目录
 ```
