@@ -208,6 +208,28 @@
   font-weight: 950;
 }
 
+.etf-watch-block {
+  border-color: rgba(129, 140, 248, 0.26);
+  background: linear-gradient(180deg, rgba(79, 70, 229, 0.12), rgba(2, 6, 23, 0.18));
+}
+
+.etf-watch-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.etf-watch-item:last-child {
+  border-bottom: 0;
+}
+
+.etf-watch-item .rank-name {
+  color: #e0e7ff;
+}
+
 .loading-box {
   margin: 0 16px 16px;
   padding: 20px;
