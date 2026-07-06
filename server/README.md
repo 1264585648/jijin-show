@@ -40,6 +40,22 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 http://localhost:8000/api/health
 ```
 
+## Docker 启动
+
+在仓库根目录执行：
+
+```bash
+docker compose up --build
+```
+
+默认服务：
+
+| 服务 | 地址 |
+| --- | --- |
+| 前端 | `http://localhost:5173` |
+| 后端 | `http://localhost:8000` |
+| 健康检查 | `http://localhost:8000/api/health` |
+
 ## 接口
 
 ### 1. 板块热力图
@@ -120,6 +136,47 @@ GET /api/sector/BK1128/stocks?type=concept
 }
 ```
 
+### 3. ETF 实时行情
+
+```text
+GET /api/etf/quotes?codes=512480,159995,515230
+```
+
+返回结构：
+
+```json
+{
+  "source": "AKShare / 东方财富",
+  "updatedAt": 1720000000,
+  "quotes": [
+    {
+      "code": "512480",
+      "name": "半导体ETF",
+      "price": 0.9123,
+      "changePct": 2.31,
+      "amount": 18.6,
+      "volume": 12345678,
+      "premiumRate": 0.08,
+      "updatedAt": 1720000000
+    }
+  ]
+}
+```
+
+## 冒烟测试
+
+在仓库根目录执行：
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+指定接口地址：
+
+```bash
+JIJIN_API_BASE=http://localhost:8000 bash scripts/smoke-test.sh
+```
+
 ## 前端接入
 
 前端默认使用 Mock 数据。
@@ -149,6 +206,7 @@ location.reload();
 | 板块资金流 | `stock_sector_fund_flow_rank()` |
 | 行业成份股 | `stock_board_industry_cons_em()` |
 | 概念成份股 | `stock_board_concept_cons_em()` |
+| ETF 实时行情 | `fund_etf_spot_em()` |
 
 ## 限制
 
