@@ -88,12 +88,8 @@ function stringifyEtf(etf) {
   return `${etf.code} ${etf.name}`;
 }
 
-export function matchSectorEtfs(sectorName = '', category = '') {
-  const text = `${sectorName} ${category}`.toLowerCase();
-  const matched = ETF_RULES.filter((rule) => rule.keywords.some((keyword) => text.includes(keyword.toLowerCase())))
-    .flatMap((rule) => rule.etfs.map(stringifyEtf));
-
-  return [...new Set(matched)].slice(0, 4);
+export function parseEtfCode(label) {
+  return String(label || '').match(/\b\d{6}\b/)?.[0] || '';
 }
 
 export function normalizeEtfLabel(etf) {
@@ -102,25 +98,51 @@ export function normalizeEtfLabel(etf) {
   return stringifyEtf(etf);
 }
 
-export function buildEtfWatchlist(sectors = []) {
+export function matchSectorEtfs(sectorName = '', category = '') {
+  const text = `${sectorName} ${category}`.toLowerCase();
+  const matched = ETF_RULES.filter((rule) => rule.keywords.some((keyword) => text.includes(keyword.toLowerCase())))
+    .flatMap((rule) => rule.etfs.map(stringifyEtf));
+
+  return [...new Set(matched)].slice(0, 4);
+}
+
+export function buildEtfQuoteMap(quotes = []) {
+  return new Map(quotes.filter((quote) => quote?.code).map((quote) => [String(quote.code), quote]));
+}
+
+function getQuoteForLabel(label, quoteMap) {
+  const code = parseEtfCode(label);
+  if (!code || !quoteMap) return null;
+  if (quoteMap instanceof Map) return quoteMap.get(code) || null;
+  return quoteMap[code] || null;
+}
+
+export function buildEtfWatchlist(sectors = [], quoteMap = new Map()) {
   const bucket = new Map();
 
   sectors.forEach((sector) => {
     const etfs = sector.relatedEtfs?.length ? sector.relatedEtfs : matchSectorEtfs(sector.name, sector.category);
     etfs.forEach((etf) => {
       const label = normalizeEtfLabel(etf);
+      const quote = getQuoteForLabel(label, quoteMap);
       const prev = bucket.get(label) || {
         label,
+        code: parseEtfCode(label),
+        quote,
         score: 0,
         hotScore: 0,
         fund: 0,
         sectors: [],
       };
-      const score = clamp(sector.hotScore + sector.mainNetInRatio * 2 + sector.changePct * 1.8 + sector.riseRatio * 0.08, 0, 100);
+
+      const quoteBonus = quote ? clamp(quote.changePct * 1.5 + Math.log10((quote.amount || 0) + 1) * 2 - Math.abs(quote.premiumRate || 0) * 1.2, -8, 12) : 0;
+      const score = clamp(sector.hotScore + sector.mainNetInRatio * 2 + sector.changePct * 1.8 + sector.riseRatio * 0.08 + quoteBonus, 0, 100);
+
       prev.score = Math.max(prev.score, score);
       prev.hotScore = Math.max(prev.hotScore, sector.hotScore);
       prev.fund += sector.mainNetIn;
       prev.sectors.push(sector.name);
+      prev.quote = prev.quote || quote;
       bucket.set(label, prev);
     });
   });
@@ -133,4 +155,10 @@ export function buildEtfWatchlist(sectors = []) {
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
+}
+
+export function collectEtfLabelsFromSectors(sectors = []) {
+  return [...new Set(
+    sectors.flatMap((sector) => sector.relatedEtfs?.length ? sector.relatedEtfs : matchSectorEtfs(sector.name, sector.category)).map(normalizeEtfLabel),
+  )];
 }
