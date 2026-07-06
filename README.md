@@ -6,7 +6,7 @@
 
 ## 当前进展
 
-已完成第二版 **板块实时热力图 MVP**：
+已完成第三版 **板块实时热力图 MVP**：
 
 - 行业板块 / 概念板块切换
 - 涨跌热力 / 资金热力 / 综合热度切换
@@ -17,9 +17,11 @@
 - 手动刷新和 15 秒自动刷新
 - 模拟实时行情脉冲，刷新时板块涨跌、成交额、资金流、上涨家数会动态变化
 - 点击板块查看详情标签页：板块概览、成份股、相关 ETF、资金结构
-- 纯静态页面，可部署到 GitHub Pages / Cloudflare Pages
+- 新增 FastAPI 后端适配器，可通过 AKShare 获取真实行业 / 概念板块行情、资金流和成份股
+- 前端支持 Mock / 真实接口一键切换
+- 纯静态页面可部署到 GitHub Pages / Cloudflare Pages，后端可单独部署
 
-## 本地预览
+## 运行方式一：只跑前端 Mock
 
 因为当前页面使用了 ES Module，建议使用本地静态服务预览。
 
@@ -38,6 +40,74 @@ http://localhost:5173
 ```bash
 npx serve .
 ```
+
+## 运行方式二：前端 + 真实后端
+
+### 1. 启动后端
+
+```bash
+cd server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Windows PowerShell：
+
+```powershell
+cd server
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+健康检查：
+
+```text
+http://localhost:8000/api/health
+```
+
+### 2. 启动前端
+
+回到仓库根目录：
+
+```bash
+python3 -m http.server 5173
+```
+
+访问：
+
+```text
+http://localhost:5173
+```
+
+### 3. 切换真实接口
+
+在浏览器控制台执行：
+
+```js
+localStorage.setItem('JIJIN_API_BASE', 'http://localhost:8000');
+location.reload();
+```
+
+恢复 Mock：
+
+```js
+localStorage.removeItem('JIJIN_API_BASE');
+location.reload();
+```
+
+## 后端接口
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/health` | 健康检查 |
+| `GET /api/sector/heatmap?type=industry&period=today` | 行业板块热力图数据 |
+| `GET /api/sector/heatmap?type=concept&period=today` | 概念板块热力图数据 |
+| `GET /api/sector/{sector_code}/stocks?type=industry` | 行业板块成份股 |
+| `GET /api/sector/{sector_code}/stocks?type=concept` | 概念板块成份股 |
 
 ## 项目定位
 
@@ -60,6 +130,7 @@ npx serve .
 | [docs/data-assets.md](docs/data-assets.md) | 推荐沉淀的数据资产、指标资产、页面资产、数据表结构 |
 | [docs/ingestion-plan.md](docs/ingestion-plan.md) | 第一阶段采集计划、任务编排、缓存策略、异常处理 |
 | [docs/heatmap-mvp.md](docs/heatmap-mvp.md) | 板块实时热力图实现说明、指标和后续接入计划 |
+| [server/README.md](server/README.md) | FastAPI + AKShare 后端接口说明 |
 | [config/data-sources.example.yaml](config/data-sources.example.yaml) | 数据源配置模板，后续可直接用于采集服务 |
 
 ## 推荐数据源组合
@@ -90,7 +161,7 @@ Tushare Pro：后期稳定归档层，有积分和权限门槛
 
 ## 热力图数据模型
 
-前端当前通过 `src/services/sector-api.js` 读取 `src/data/mock-sectors.js`，并模拟准实时刷新。
+前端通过 `src/services/sector-api.js` 读取数据。默认读取 `src/data/mock-sectors.js` 并模拟准实时刷新；设置 `JIJIN_API_BASE` 后会读取后端真实接口。
 
 ```js
 {
@@ -127,19 +198,6 @@ Tushare Pro：后期稳定归档层，有积分和权限门槛
 | `upCount` | 上涨家数 | 家 |
 | `downCount` | 下跌家数 | 家 |
 
-## 真实数据接入建议
-
-后续建议通过后端服务接入 AKShare / 东方财富数据，前端只消费清洗后的统一 JSON。
-
-推荐接口：
-
-```text
-GET /api/sector/heatmap?type=industry&period=today&metric=change
-GET /api/sector/heatmap?type=concept&period=today&metric=change
-GET /api/sector/:code/detail
-GET /api/sector/:code/stocks
-```
-
 ## 数据使用原则
 
 - 免费公开接口适合 MVP 和个人研究，但字段、频率、限流都可能变化。
@@ -155,6 +213,10 @@ jijin-show/
 ├── config/                  # 数据源、任务、环境配置模板
 ├── docs/                    # 数据源、数据资产、采集计划
 ├── data/                    # 本地数据目录，仅放 README，不提交数据文件
+├── server/                  # FastAPI + AKShare 后端适配器
+│   ├── main.py
+│   ├── requirements.txt
+│   └── README.md
 ├── src/                     # 当前静态页面代码，后续也可迁移为 web/src
 │   ├── data/                # Mock 数据
 │   ├── services/            # 前端数据适配层
@@ -167,8 +229,8 @@ jijin-show/
 
 ## 下一步建议
 
-1. 增加后端 API 适配层，把 Mock 数据替换为实时数据。
-2. 增加板块分时走势弹窗。
-3. 增加 ETF 映射表，点击板块后展示可交易基金。
-4. 增加“异动板块”独立列表，例如强势共振、资金抢筹、高位分歧、板块退潮。
-5. 用 `sector_flow_rank_daily` 和 `fund_index_master` 做第一版「板块资金流 -> ETF / 指数基金」映射。
+1. 增加板块分时走势弹窗。
+2. 增加 ETF 映射表，点击板块后展示可交易基金。
+3. 增加“异动板块”独立列表，例如强势共振、资金抢筹、高位分歧、板块退潮。
+4. 用 `sector_flow_rank_daily` 和 `fund_index_master` 做第一版「板块资金流 -> ETF / 指数基金」映射。
+5. 给后端增加日志、失败重试、字段快照和单元测试。
