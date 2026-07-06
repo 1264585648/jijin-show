@@ -1,4 +1,5 @@
 import { fetchSectorHeatmap, fetchSectorStocks } from './services/sector-api.js';
+import { buildEtfWatchlist, matchSectorEtfs, normalizeEtfLabel } from './data/etf-map.js';
 
 const REFRESH_INTERVAL_SECONDS = 15;
 
@@ -71,6 +72,7 @@ function enrichSector(sector) {
     100,
   );
   const tags = getSectorTags({ ...sector, riseRatio, hotScore });
+  const relatedEtfs = sector.relatedEtfs?.length ? sector.relatedEtfs : matchSectorEtfs(sector.name, sector.category);
 
   return {
     ...sector,
@@ -78,6 +80,7 @@ function enrichSector(sector) {
     hotScore,
     mainNetInAbs: Math.abs(sector.mainNetIn),
     tags,
+    relatedEtfs,
   };
 }
 
@@ -104,7 +107,7 @@ function getCurrentData() {
         item.category,
         item.leadingStock,
         item.topFundFlowStock,
-        ...(item.relatedEtfs || []),
+        ...(item.relatedEtfs || []).map(normalizeEtfLabel),
       ]
         .join(' ')
         .toLowerCase()
@@ -257,51 +260,89 @@ function renderHeatmap(data) {
     .join('');
 }
 
+function getAnomalyList(data) {
+  return data
+    .filter((item) => item.tags.some((tag) => tag !== '常规波动'))
+    .sort((a, b) => b.hotScore - a.hotScore)
+    .slice(0, 6);
+}
+
+function renderRankBlock(block) {
+  return `
+    <section class="rank-block">
+      <div class="rank-title"><strong>${block.title}</strong><span>${block.caption}</span></div>
+      ${block.list
+        .map(
+          (item, index) => `
+          <div class="rank-item" data-id="${item.id}">
+            <span class="rank-no">${index + 1}</span>
+            <div>
+              <div class="rank-name">${item.name}</div>
+              <div class="rank-meta">${item.category} · ${block.meta(item)}</div>
+            </div>
+            <strong class="rank-value ${block.valueClass(item)}">${block.value(item)}</strong>
+          </div>
+        `,
+        )
+        .join('')}
+    </section>
+  `;
+}
+
+function renderEtfWatchlist(data) {
+  const watchlist = buildEtfWatchlist(data);
+  if (!watchlist.length) return '';
+
+  return `
+    <section class="rank-block etf-watch-block">
+      <div class="rank-title"><strong>ETF 观察池</strong><span>Top ${watchlist.length}</span></div>
+      ${watchlist
+        .map(
+          (item, index) => `
+          <div class="etf-watch-item">
+            <span class="rank-no">${index + 1}</span>
+            <div>
+              <div class="rank-name">${item.label}</div>
+              <div class="rank-meta">${item.signal} · ${item.sectors.join(' / ')}</div>
+            </div>
+            <strong class="rank-value ${classByValue(item.fund)}">${item.score.toFixed(0)}</strong>
+          </div>
+        `,
+        )
+        .join('')}
+    </section>
+  `;
+}
+
 function renderRanks(data) {
   const blocks = [
     {
       title: '涨幅榜',
-      field: 'changePct',
-      formatter: formatPercent,
+      caption: 'Top 5',
       list: [...data].sort((a, b) => b.changePct - a.changePct).slice(0, 5),
+      meta: (item) => item.tags[0],
+      value: (item) => formatPercent(item.changePct),
+      valueClass: (item) => classByValue(item.changePct),
     },
     {
       title: '主力流入榜',
-      field: 'mainNetIn',
-      formatter: formatMoney,
+      caption: 'Top 5',
       list: [...data].sort((a, b) => b.mainNetIn - a.mainNetIn).slice(0, 5),
+      meta: (item) => `净占比 ${formatPercent(item.mainNetInRatio)}`,
+      value: (item) => formatMoney(item.mainNetIn),
+      valueClass: (item) => classByValue(item.mainNetIn),
     },
     {
-      title: '综合热度榜',
-      field: 'hotScore',
-      formatter: (v) => v.toFixed(1),
-      list: [...data].sort((a, b) => b.hotScore - a.hotScore).slice(0, 5),
+      title: '异动板块',
+      caption: 'Signal',
+      list: getAnomalyList(data),
+      meta: (item) => item.tags.slice(0, 2).join(' / '),
+      value: (item) => item.hotScore.toFixed(0),
+      valueClass: (item) => classByValue(item.hotScore - 50),
     },
   ];
 
-  els.rankLists.innerHTML = blocks
-    .map(
-      (block) => `
-      <section class="rank-block">
-        <div class="rank-title"><strong>${block.title}</strong><span>Top 5</span></div>
-        ${block.list
-          .map(
-            (item, index) => `
-            <div class="rank-item" data-id="${item.id}">
-              <span class="rank-no">${index + 1}</span>
-              <div>
-                <div class="rank-name">${item.name}</div>
-                <div class="rank-meta">${item.category} · ${item.tags[0]}</div>
-              </div>
-              <strong class="rank-value ${classByValue(item[block.field] - (block.field === 'hotScore' ? 50 : 0))}">${block.formatter(item[block.field])}</strong>
-            </div>
-          `,
-          )
-          .join('')}
-      </section>
-    `,
-    )
-    .join('');
+  els.rankLists.innerHTML = `${blocks.map(renderRankBlock).join('')}${renderEtfWatchlist(data)}`;
 }
 
 function renderDetail(item) {
@@ -412,6 +453,12 @@ function renderStocksTab(item, stocks, isStocksLoading) {
 }
 
 function renderEtfTab(item) {
+  const etfs = item.relatedEtfs?.length ? item.relatedEtfs : matchSectorEtfs(item.name, item.category);
+
+  if (!etfs.length) {
+    return `<div class="loading-box">暂无 ETF 映射。后续可在 src/data/etf-map.js 中补充规则。</div>`;
+  }
+
   return `
     <section class="detail-section full-section">
       <div class="table-headline">
@@ -419,15 +466,16 @@ function renderEtfTab(item) {
         <span>用于把板块热度转成可观察基金入口</span>
       </div>
       <div class="etf-card-list">
-        ${item.relatedEtfs
+        ${etfs
           .map((etf, index) => {
+            const label = normalizeEtfLabel(etf);
             const score = clamp(item.hotScore - index * 7 + item.mainNetInRatio * 1.5, 0, 100);
             const signal = score >= 75 ? '高热度' : score >= 58 ? '可观察' : '低优先级';
             return `
               <article class="etf-card">
                 <div>
-                  <strong>${etf}</strong>
-                  <span>${signal}</span>
+                  <strong>${label}</strong>
+                  <span>${signal} · 映射板块：${item.name}</span>
                 </div>
                 <div class="etf-score ${score >= 70 ? 'positive' : 'neutral'}">${score.toFixed(0)}</div>
               </article>
@@ -435,7 +483,7 @@ function renderEtfTab(item) {
           })
           .join('')}
       </div>
-      <p class="summary-note">真实版本建议维护「板块代码 -> 指数 -> ETF / 指数基金」映射表，并合并 ETF 成交额、涨跌幅、溢折价和主力资金。</p>
+      <p class="summary-note">当前使用本地映射字典，真实版本建议合并 ETF 实时成交额、涨跌幅、溢折价和基金规模。</p>
     </section>
   `;
 }
