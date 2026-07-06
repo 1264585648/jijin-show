@@ -16,7 +16,7 @@ Period = Literal["today", "5d", "10d"]
 app = FastAPI(
     title="Jijin Show Sector API",
     description="板块实时热力图后端适配器：AKShare -> 前端统一 JSON。",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -113,6 +113,10 @@ def get_fund_flow_df(sector_type: SectorType, period: Period) -> pd.DataFrame:
     )
 
 
+def get_etf_spot_df() -> pd.DataFrame:
+    return cached_dataframe("etf:spot", ak.fund_etf_spot_em)
+
+
 def build_fund_flow_map(flow_df: pd.DataFrame) -> dict[str, pd.Series]:
     result: dict[str, pd.Series] = {}
     for _, row in flow_df.iterrows():
@@ -147,8 +151,6 @@ def normalize_sector(row: pd.Series, flow_row: pd.Series | None, sector_type: Se
         "changePct": round(safe_float(row.get("涨跌幅")), 2),
         "turnoverRate": round(safe_float(row.get("换手率")), 2),
         "marketCap": market_cap_to_yi(row.get("总市值")),
-        # stock_board_*_name_em 不直接返回成交额；这里先留 0，前端可以切换总市值或资金规模面积。
-        # 后续可按需对重点板块补调用 stock_board_*_spot_em 获取成交额。
         "amount": 0,
         "mainNetIn": main_net_in,
         "mainNetInRatio": main_net_in_ratio,
@@ -160,6 +162,19 @@ def normalize_sector(row: pd.Series, flow_row: pd.Series | None, sector_type: Se
         "leadingStockChangePct": round(safe_float(row.get("领涨股票-涨跌幅")), 2),
         "topFundFlowStock": top_fund_flow_stock,
         "relatedEtfs": [],
+    }
+
+
+def normalize_etf(row: pd.Series) -> dict[str, Any]:
+    return {
+        "code": str(row.get("代码", "")).strip(),
+        "name": str(row.get("名称", "")).strip(),
+        "price": round(safe_float(row.get("最新价")), 4),
+        "changePct": round(safe_float(row.get("涨跌幅")), 2),
+        "amount": money_to_yi(row.get("成交额")),
+        "volume": safe_float(row.get("成交量")),
+        "premiumRate": round(safe_float(row.get("溢价率", row.get("折价率"))), 2),
+        "updatedAt": int(time.time()),
     }
 
 
@@ -190,7 +205,6 @@ def sector_heatmap(
         for _, row in board_df.iterrows()
     ]
 
-    # 资金接口中可能有个别名称与行情接口不完全一致，保留行情接口为主。
     nodes = [node for node in nodes if node["name"]]
     nodes.sort(key=lambda item: (item["mainNetIn"], item["changePct"]), reverse=True)
 
@@ -237,3 +251,18 @@ def sector_stocks(
         "updatedAt": int(time.time()),
         "stocks": stocks,
     }
+
+
+@app.get("/api/etf/quotes")
+def etf_quotes(codes: str = Query("", description="ETF 代码，英文逗号分隔")) -> dict[str, Any]:
+    wanted = {code.strip() for code in codes.split(",") if code.strip()}
+    if not wanted:
+        return {"source": "AKShare / 东方财富", "updatedAt": int(time.time()), "quotes": []}
+
+    try:
+        df = get_etf_spot_df()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"获取 ETF 行情失败: {exc}") from exc
+
+    quotes = [normalize_etf(row) for _, row in df.iterrows() if str(row.get("代码", "")).strip() in wanted]
+    return {"source": "AKShare / 东方财富", "updatedAt": int(time.time()), "quotes": quotes}
