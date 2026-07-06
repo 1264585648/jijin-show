@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>基金大盘 · 板块实时热力图</title>
     <link rel="stylesheet" href="./src/styles.css" />
+    <link rel="stylesheet" href="./src/realtime.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -14,11 +15,21 @@
           <h1>板块实时热力图</h1>
           <p class="subtitle">用涨跌、资金、成交和扩散度识别今日市场主线。</p>
         </div>
-        <div class="market-status">
-          <span class="status-dot"></span>
-          <div>
-            <strong>A 股模拟盘中</strong>
-            <span id="updatedAt">--</span>
+        <div class="market-card">
+          <div class="market-status">
+            <span class="status-dot"></span>
+            <div>
+              <strong>A 股模拟盘中</strong>
+              <span id="updatedAt">--</span>
+            </div>
+          </div>
+          <div class="market-actions">
+            <button id="refreshBtn" class="ghost-button" type="button">手动刷新</button>
+            <label class="switch-control">
+              <input id="autoRefreshToggle" type="checkbox" checked />
+              <span>自动刷新</span>
+            </label>
+            <span id="refreshCountdown" class="refresh-countdown">15s</span>
           </div>
         </div>
       </header>
@@ -80,7 +91,7 @@
         <aside class="detail-panel panel" id="detailPanel">
           <div class="empty-detail">
             <span>选择一个板块</span>
-            <p>查看资金结构、领涨股、内部扩散度和相关 ETF。</p>
+            <p>查看资金结构、领涨股、内部扩散度、成份股和相关 ETF。</p>
           </div>
         </aside>
       </main>
