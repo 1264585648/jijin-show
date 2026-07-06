@@ -1,5 +1,12 @@
 import { fetchEtfQuotes, fetchSectorHeatmap, fetchSectorStocks } from './services/sector-api.js';
-import { buildEtfQuoteMap, buildEtfWatchlist, collectEtfLabelsFromSectors, matchSectorEtfs, normalizeEtfLabel } from './data/etf-map.js';
+import {
+  ETF_WATCHLIST_DEFAULT_FILTERS,
+  buildEtfQuoteMap,
+  buildEtfWatchlist,
+  collectEtfLabelsFromSectors,
+  matchSectorEtfs,
+  normalizeEtfLabel,
+} from './data/etf-map.js';
 
 const REFRESH_INTERVAL_SECONDS = 15;
 
@@ -12,6 +19,7 @@ const state = {
   activeTab: 'overview',
   rawData: [],
   etfQuotes: new Map(),
+  etfFilters: { ...ETF_WATCHLIST_DEFAULT_FILTERS },
   autoRefresh: true,
   countdown: REFRESH_INTERVAL_SECONDS,
   isLoading: false,
@@ -59,8 +67,15 @@ const TAB_LABELS = {
   flow: '资金结构',
 };
 
-const formatPercent = (value) => `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
-const formatMoney = (value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}亿`;
+const MIN_AMOUNT_OPTIONS = [
+  { value: 0, label: '成交额不限' },
+  { value: 1, label: '1亿+' },
+  { value: 5, label: '5亿+' },
+  { value: 20, label: '20亿+' },
+];
+
+const formatPercent = (value) => `${value > 0 ? '+' : ''}${Number(value || 0).toFixed(2)}%`;
+const formatMoney = (value) => `${value > 0 ? '+' : ''}${Number(value || 0).toFixed(1)}亿`;
 const classByValue = (value) => (value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral');
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -167,18 +182,8 @@ function renderSummary(data) {
   const resonanceCount = data.filter((item) => item.tags.includes('强势共振')).length;
 
   const cards = [
-    {
-      label: '覆盖板块',
-      value: data.length,
-      suffix: '个',
-      note: `${TYPE_LABELS[state.type]} · ${MODE_LABELS[state.mode]}`,
-    },
-    {
-      label: '样本成交额',
-      value: totalAmount.toFixed(0),
-      suffix: '亿',
-      note: `面积口径：${AREA_LABELS[state.area]}`,
-    },
+    { label: '覆盖板块', value: data.length, suffix: '个', note: `${TYPE_LABELS[state.type]} · ${MODE_LABELS[state.mode]}` },
+    { label: '样本成交额', value: totalAmount.toFixed(0), suffix: '亿', note: `面积口径：${AREA_LABELS[state.area]}` },
     {
       label: '主力净流入',
       value: `${totalFund > 0 ? '+' : ''}${totalFund.toFixed(1)}`,
@@ -220,7 +225,6 @@ function renderLegend() {
 function renderHeatmap(data) {
   const sortKey = state.area;
   const sorted = [...data].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
-
   els.heatmapTitle.textContent = `${TYPE_LABELS[state.type]} · ${MODE_LABELS[state.mode]}`;
 
   if (!sorted.length) {
@@ -290,32 +294,61 @@ function renderRankBlock(block) {
   `;
 }
 
+function renderEtfFilterControls() {
+  return `
+    <div class="etf-filter-panel">
+      <label class="etf-filter-check">
+        <input type="checkbox" data-etf-filter="hideWeakLiquidity" ${state.etfFilters.hideWeakLiquidity ? 'checked' : ''} />
+        <span>隐藏低流动性</span>
+      </label>
+      <label class="etf-filter-check">
+        <input type="checkbox" data-etf-filter="onlyHighHeat" ${state.etfFilters.onlyHighHeat ? 'checked' : ''} />
+        <span>只看高热</span>
+      </label>
+      <select class="etf-filter-select" data-etf-filter="minAmount" aria-label="ETF 最低成交额">
+        ${MIN_AMOUNT_OPTIONS.map((option) => `<option value="${option.value}" ${Number(state.etfFilters.minAmount) === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+      </select>
+    </div>
+  `;
+}
+
+function getEtfFilterSummary(watchlist) {
+  const filters = [];
+  if (state.etfFilters.hideWeakLiquidity) filters.push('已隐藏低流动性');
+  if (state.etfFilters.onlyHighHeat) filters.push('仅高热');
+  if (Number(state.etfFilters.minAmount) > 0) filters.push(`成交额≥${state.etfFilters.minAmount}亿`);
+  return filters.length ? filters.join(' · ') : `Top ${watchlist.length}`;
+}
+
 function renderEtfWatchlist(data) {
-  const watchlist = buildEtfWatchlist(data, state.etfQuotes);
-  if (!watchlist.length) return '';
+  const watchlist = buildEtfWatchlist(data, state.etfQuotes, state.etfFilters);
 
   return `
     <section class="rank-block etf-watch-block">
-      <div class="rank-title"><strong>ETF 观察池</strong><span>含行情</span></div>
-      ${watchlist
-        .map(
-          (item, index) => {
+      <div class="rank-title"><strong>ETF 观察池</strong><span>${getEtfFilterSummary(watchlist)}</span></div>
+      ${renderEtfFilterControls()}
+      ${watchlist.length
+        ? watchlist
+          .map((item, index) => {
             const quote = item.quote;
+            const quoteInfo = item.quoteInfo;
             const quoteText = quote ? `${formatPercent(quote.changePct)} · ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}` : '等待 ETF 行情';
+            const riskTags = quoteInfo?.riskTags?.length ? quoteInfo.riskTags.slice(0, 3) : ['等待行情'];
             return `
-              <div class="etf-watch-item">
+              <div class="etf-watch-item ${quoteInfo?.tradable === false ? 'is-muted' : ''}">
                 <span class="rank-no">${index + 1}</span>
                 <div>
                   <div class="rank-name">${quote?.code || item.code} ${quote?.name || item.label.replace(/^\d{6}\s*/, '')}</div>
                   <div class="rank-meta">${item.signal} · ${item.sectors.join(' / ')}</div>
+                  <div class="etf-risk-tags">${riskTags.map((tag) => `<span>${tag}</span>`).join('')}</div>
                   <div class="etf-quote-line ${quote ? classByValue(quote.changePct) : 'neutral'}">${quoteText}</div>
                 </div>
                 <strong class="rank-value ${classByValue(item.fund)}">${item.score.toFixed(0)}</strong>
               </div>
             `;
-          },
-        )
-        .join('')}
+          })
+          .join('')
+        : '<div class="etf-filter-empty">当前筛选条件下暂无 ETF，可降低成交额阈值或关闭筛选。</div>'}
     </section>
   `;
 }
@@ -374,9 +407,7 @@ function renderDetail(item) {
     </div>
     <div class="detail-tabs">
       ${Object.entries(TAB_LABELS)
-        .map(
-          ([key, label]) => `<button class="detail-tab ${state.activeTab === key ? 'is-active' : ''}" data-tab="${key}" type="button">${label}</button>`,
-        )
+        .map(([key, label]) => `<button class="detail-tab ${state.activeTab === key ? 'is-active' : ''}" data-tab="${key}" type="button">${label}</button>`)
         .join('')}
     </div>
     <div class="detail-tab-content">
@@ -418,28 +449,14 @@ function renderOverviewTab(item) {
 }
 
 function renderStocksTab(item, stocks, isStocksLoading) {
-  if (isStocksLoading && !stocks) {
-    return `<div class="loading-box">正在加载 ${item.name} 成份股...</div>`;
-  }
-
-  if (!stocks?.length) {
-    return `<div class="loading-box">暂无成份股数据</div>`;
-  }
+  if (isStocksLoading && !stocks) return `<div class="loading-box">正在加载 ${item.name} 成份股...</div>`;
+  if (!stocks?.length) return `<div class="loading-box">暂无成份股数据</div>`;
 
   return `
     <section class="detail-section full-section">
-      <div class="table-headline">
-        <h3>成份股强弱</h3>
-        <span>模拟字段 · 后续接真实接口</span>
-      </div>
+      <div class="table-headline"><h3>成份股强弱</h3><span>模拟字段 · 后续接真实接口</span></div>
       <div class="stock-table">
-        <div class="stock-row stock-row-head">
-          <span>代码</span>
-          <span>名称</span>
-          <span>涨跌幅</span>
-          <span>主力</span>
-          <span>角色</span>
-        </div>
+        <div class="stock-row stock-row-head"><span>代码</span><span>名称</span><span>涨跌幅</span><span>主力</span><span>角色</span></div>
         ${stocks
           .map(
             (stock) => `
@@ -460,29 +477,26 @@ function renderStocksTab(item, stocks, isStocksLoading) {
 
 function renderEtfTab(item) {
   const etfs = item.relatedEtfs?.length ? item.relatedEtfs : matchSectorEtfs(item.name, item.category);
-
-  if (!etfs.length) {
-    return `<div class="loading-box">暂无 ETF 映射。后续可在 src/data/etf-map.js 中补充规则。</div>`;
-  }
+  if (!etfs.length) return `<div class="loading-box">暂无 ETF 映射。后续可在 src/data/etf-map.js 中补充规则。</div>`;
 
   return `
     <section class="detail-section full-section">
-      <div class="table-headline">
-        <h3>相关 ETF / 基金观察</h3>
-        <span>板块热度 + ETF 行情</span>
-      </div>
+      <div class="table-headline"><h3>相关 ETF / 基金观察</h3><span>板块热度 + ETF 行情</span></div>
       <div class="etf-card-list">
         ${etfs
           .map((etf, index) => {
             const label = normalizeEtfLabel(etf);
-            const quote = buildEtfWatchlist([{ ...item, relatedEtfs: [label] }], state.etfQuotes)[0]?.quote;
-            const score = clamp(item.hotScore - index * 7 + item.mainNetInRatio * 1.5 + (quote?.changePct || 0) * 1.5, 0, 100);
-            const signal = score >= 75 ? '高热度' : score >= 58 ? '可观察' : '低优先级';
+            const watch = buildEtfWatchlist([{ ...item, relatedEtfs: [label] }], state.etfQuotes, { ...ETF_WATCHLIST_DEFAULT_FILTERS, limit: 1 })[0];
+            const quote = watch?.quote;
+            const score = watch?.score ?? clamp(item.hotScore - index * 7 + item.mainNetInRatio * 1.5 + (quote?.changePct || 0) * 1.5, 0, 100);
+            const signal = watch?.signal || (score >= 75 ? '高热度' : score >= 58 ? '可观察' : '低优先级');
+            const riskTags = watch?.quoteInfo?.riskTags?.length ? watch.quoteInfo.riskTags.slice(0, 3) : ['等待行情'];
             return `
               <article class="etf-card">
                 <div>
                   <strong>${quote?.code || label.match(/\d{6}/)?.[0] || ''} ${quote?.name || label.replace(/^\d{6}\s*/, '')}</strong>
                   <span>${signal} · ${quote ? `${formatPercent(quote.changePct)} · 成交 ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}` : '等待 ETF 行情'}</span>
+                  <div class="etf-risk-tags">${riskTags.map((tag) => `<span>${tag}</span>`).join('')}</div>
                 </div>
                 <div class="etf-score ${score >= 70 ? 'positive' : 'neutral'}">${score.toFixed(0)}</div>
               </article>
@@ -506,19 +520,13 @@ function renderFlowTab(item) {
 
   return `
     <section class="detail-section full-section">
-      <div class="table-headline">
-        <h3>资金结构</h3>
-        <span>看资金是共振流入还是局部分歧</span>
-      </div>
+      <div class="table-headline"><h3>资金结构</h3><span>看资金是共振流入还是局部分歧</span></div>
       <div class="flow-list">
         ${flows
           .map(
             ([label, value]) => `
             <div class="flow-item">
-              <div>
-                <span>${label}</span>
-                <strong class="${classByValue(value)}">${label === '净占比' ? formatPercent(value) : formatMoney(value)}</strong>
-              </div>
+              <div><span>${label}</span><strong class="${classByValue(value)}">${label === '净占比' ? formatPercent(value) : formatMoney(value)}</strong></div>
               <div class="flow-track"><span class="${value >= 0 ? 'flow-positive' : 'flow-negative'}" style="width:${Math.max(8, (Math.abs(value) / maxAbs) * 100)}%"></span></div>
             </div>
           `,
@@ -580,9 +588,7 @@ function selectSector(id) {
 
 function render() {
   const data = getCurrentData();
-  if (!state.selectedId || !data.some((item) => item.id === state.selectedId)) {
-    state.selectedId = data[0]?.id || null;
-  }
+  if (!state.selectedId || !data.some((item) => item.id === state.selectedId)) state.selectedId = data[0]?.id || null;
 
   const selected = data.find((item) => item.id === state.selectedId);
   els.updatedAt.textContent = new Date().toLocaleString('zh-CN', {
@@ -617,6 +623,14 @@ async function loadData({ preserveSelected = true, realtime = true } = {}) {
   render();
 }
 
+function updateEtfFilter(target) {
+  const key = target.dataset.etfFilter;
+  if (!key) return;
+  if (target.type === 'checkbox') state.etfFilters[key] = target.checked;
+  else if (key === 'minAmount') state.etfFilters[key] = Number(target.value);
+  renderRanks(getCurrentData());
+}
+
 function bindEvents() {
   document.querySelectorAll('.segmented').forEach((group) => {
     group.addEventListener('click', async (event) => {
@@ -648,6 +662,11 @@ function bindEvents() {
     state.autoRefresh = event.target.checked;
     state.countdown = REFRESH_INTERVAL_SECONDS;
     updateRefreshUI();
+  });
+
+  document.addEventListener('change', (event) => {
+    const filterControl = event.target.closest('[data-etf-filter]');
+    if (filterControl) updateEtfFilter(filterControl);
   });
 
   document.addEventListener('click', (event) => {
