@@ -3,11 +3,21 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+.Python
 .venv/
 venv/
 .env
 .env.*
 !.env.example
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.cache/
 
 # Local data and generated artifacts
 data/local/
@@ -27,6 +37,9 @@ public/data/*.json
 .ipynb_checkpoints/
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+*.swp
 
 # Logs
 *.log
