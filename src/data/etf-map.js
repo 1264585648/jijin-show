@@ -87,6 +87,13 @@ const LIQUIDITY_RULES = [
   { minAmount: 0, level: 'weak', label: '流动性不足', penalty: 18 },
 ];
 
+export const ETF_WATCHLIST_DEFAULT_FILTERS = {
+  hideWeakLiquidity: false,
+  minAmount: 0,
+  onlyHighHeat: false,
+  limit: 8,
+};
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -167,7 +174,19 @@ function getSignal(score, quoteInfo) {
   return '低优先级';
 }
 
-export function buildEtfWatchlist(sectors = [], quoteMap = new Map()) {
+function applyWatchlistFilters(items, filters) {
+  return items.filter((item) => {
+    const quote = item.quote;
+    const amount = Number(quote?.amount || 0);
+    if (filters.hideWeakLiquidity && item.quoteInfo?.liquidityLevel === 'weak') return false;
+    if (filters.minAmount > 0 && quote && amount < filters.minAmount) return false;
+    if (filters.onlyHighHeat && item.signal !== '高热观察') return false;
+    return true;
+  });
+}
+
+export function buildEtfWatchlist(sectors = [], quoteMap = new Map(), filters = {}) {
+  const options = { ...ETF_WATCHLIST_DEFAULT_FILTERS, ...filters };
   const bucket = new Map();
 
   sectors.forEach((sector) => {
@@ -206,7 +225,7 @@ export function buildEtfWatchlist(sectors = [], quoteMap = new Map()) {
     });
   });
 
-  return [...bucket.values()]
+  const ranked = [...bucket.values()]
     .map((item) => ({
       ...item,
       sectors: [...new Set(item.sectors)].slice(0, 3),
@@ -216,8 +235,9 @@ export function buildEtfWatchlist(sectors = [], quoteMap = new Map()) {
       const aPenalty = a.quoteInfo?.tradable === false ? 1 : 0;
       const bPenalty = b.quoteInfo?.tradable === false ? 1 : 0;
       return aPenalty - bPenalty || b.score - a.score;
-    })
-    .slice(0, 8);
+    });
+
+  return applyWatchlistFilters(ranked, options).slice(0, options.limit);
 }
 
 export function collectEtfLabelsFromSectors(sectors = []) {
