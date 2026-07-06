@@ -69,40 +69,14 @@ function withRealtimePulse(item, index) {
   };
 }
 
-/**
- * 当前默认使用前端 Mock 数据。
- * 设置 localStorage.JIJIN_API_BASE 后会切换到真实后端，例如：http://localhost:8000
- */
-export function getSectorData(type) {
-  return SECTOR_DATA[type] || [];
-}
-
-export async function fetchSectorHeatmap({ type = 'industry', realtime = true } = {}) {
-  const apiBase = getApiBase();
-
-  if (apiBase) {
-    const response = await fetch(`${apiBase}/api/sector/heatmap?type=${type}&period=today`);
-    if (!response.ok) throw new Error('获取真实板块热力图失败');
-    const payload = await response.json();
-    return payload.nodes || [];
-  }
-
+function getMockHeatmap(type, realtime) {
   const data = clone(getSectorData(type));
   if (!realtime) return data;
   tick += 1;
   return data.map(withRealtimePulse);
 }
 
-export async function fetchSectorStocks(sector) {
-  const apiBase = getApiBase();
-
-  if (apiBase) {
-    const response = await fetch(`${apiBase}/api/sector/${encodeURIComponent(sector.id)}/stocks?type=${sector.type || 'industry'}`);
-    if (!response.ok) throw new Error('获取真实板块成份股失败');
-    const payload = await response.json();
-    return payload.stocks || [];
-  }
-
+function getMockStocks(sector) {
   const pool = STOCK_POOLS[sector.category] || STOCK_POOLS.TMT;
   const spreadBias = sector.changePct / 3;
 
@@ -123,6 +97,48 @@ export async function fetchSectorStocks(sector) {
       role: index === 0 ? '核心龙头' : index < 3 ? '资金前排' : index < 6 ? '弹性跟随' : '观察标的',
     };
   });
+}
+
+/**
+ * 当前默认使用前端 Mock 数据。
+ * 设置 localStorage.JIJIN_API_BASE 后会切换到真实后端，例如：http://localhost:8000
+ */
+export function getSectorData(type) {
+  return SECTOR_DATA[type] || [];
+}
+
+export async function fetchSectorHeatmap({ type = 'industry', realtime = true } = {}) {
+  const apiBase = getApiBase();
+
+  if (apiBase) {
+    try {
+      const response = await fetch(`${apiBase}/api/sector/heatmap?type=${type}&period=today`);
+      if (!response.ok) throw new Error('获取真实板块热力图失败');
+      const payload = await response.json();
+      return payload.nodes || [];
+    } catch (error) {
+      console.warn('真实后端不可用，已回退到 Mock 数据：', error);
+    }
+  }
+
+  return getMockHeatmap(type, realtime);
+}
+
+export async function fetchSectorStocks(sector) {
+  const apiBase = getApiBase();
+
+  if (apiBase) {
+    try {
+      const response = await fetch(`${apiBase}/api/sector/${encodeURIComponent(sector.id)}/stocks?type=${sector.type || 'industry'}`);
+      if (!response.ok) throw new Error('获取真实板块成份股失败');
+      const payload = await response.json();
+      return payload.stocks || [];
+    } catch (error) {
+      console.warn('真实成份股接口不可用，已回退到 Mock 数据：', error);
+    }
+  }
+
+  return getMockStocks(sector);
 }
 
 export function getDataModeLabel() {
