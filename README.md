@@ -6,7 +6,7 @@
 
 ## 当前进展
 
-已完成第一版 **板块实时热力图 MVP**：
+已完成第二版 **板块实时热力图 MVP**：
 
 - 行业板块 / 概念板块切换
 - 涨跌热力 / 资金热力 / 综合热度切换
@@ -14,17 +14,10 @@
 - 板块搜索过滤
 - 涨幅榜、主力流入榜、综合热度榜
 - 热力图 Tooltip
-- 点击板块查看详情、资金结构、扩散度、领涨股、相关 ETF
+- 手动刷新和 15 秒自动刷新
+- 模拟实时行情脉冲，刷新时板块涨跌、成交额、资金流、上涨家数会动态变化
+- 点击板块查看详情标签页：板块概览、成份股、相关 ETF、资金结构
 - 纯静态页面，可部署到 GitHub Pages / Cloudflare Pages
-
-已补齐第一版 **真实数据采集骨架**：
-
-- AKShare 采集器
-- 基金 / ETF / 板块资金流 / 个股资金流标准化
-- DuckDB 本地落库
-- 前端 JSON 导出
-- 板块热度分计算
-- 命令行入口
 
 ## 本地预览
 
@@ -46,58 +39,6 @@ http://localhost:5173
 npx serve .
 ```
 
-## 数据采集快速开始
-
-安装 Python 运行环境：
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-Windows PowerShell：
-
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e .
-```
-
-查看当前支持的数据资产：
-
-```bash
-jijin-show assets
-```
-
-采集单个资产：
-
-```bash
-jijin-show collect sector_flow_rank_daily
-```
-
-采集全部 MVP 资产：
-
-```bash
-jijin-show collect all
-```
-
-生成大盘概览 JSON：
-
-```bash
-jijin-show overview
-```
-
-默认输出：
-
-```text
-data/local/jijin_show.duckdb
-public/data/market-overview.json
-public/data/sector_heat_score.json
-```
-
-更多说明见 [docs/development.md](docs/development.md)。
-
 ## 项目定位
 
 核心不是简单展示基金净值，而是把下面几类信息组合起来：
@@ -118,7 +59,7 @@ public/data/sector_heat_score.json
 | [docs/data-sources.md](docs/data-sources.md) | 可依赖的数据接口、开源项目、接入优先级、风险说明 |
 | [docs/data-assets.md](docs/data-assets.md) | 推荐沉淀的数据资产、指标资产、页面资产、数据表结构 |
 | [docs/ingestion-plan.md](docs/ingestion-plan.md) | 第一阶段采集计划、任务编排、缓存策略、异常处理 |
-| [docs/development.md](docs/development.md) | 本地安装、采集命令、JSON 导出、常见问题 |
+| [docs/heatmap-mvp.md](docs/heatmap-mvp.md) | 板块实时热力图实现说明、指标和后续接入计划 |
 | [config/data-sources.example.yaml](config/data-sources.example.yaml) | 数据源配置模板，后续可直接用于采集服务 |
 
 ## 推荐数据源组合
@@ -149,7 +90,7 @@ Tushare Pro：后期稳定归档层，有积分和权限门槛
 
 ## 热力图数据模型
 
-前端当前使用 `src/data/mock-sectors.js` 中的 Mock 数据，字段结构如下：
+前端当前通过 `src/services/sector-api.js` 读取 `src/data/mock-sectors.js`，并模拟准实时刷新。
 
 ```js
 {
@@ -212,14 +153,14 @@ GET /api/sector/:code/stocks
 ```text
 jijin-show/
 ├── config/                  # 数据源、任务、环境配置模板
-├── docs/                    # 数据源、数据资产、采集计划、开发说明
+├── docs/                    # 数据源、数据资产、采集计划
 ├── data/                    # 本地数据目录，仅放 README，不提交数据文件
-├── src/
-│   ├── jijin_show/          # Python 数据采集、清洗、存储、导出工具包
-│   ├── data/                # Mock 数据和后续前端适配层
+├── src/                     # 当前静态页面代码，后续也可迁移为 web/src
+│   ├── data/                # Mock 数据
+│   ├── services/            # 前端数据适配层
 │   ├── main.js              # 热力图交互逻辑
-│   └── styles.css           # 页面样式
-├── scripts/                 # 命令行辅助脚本
+│   ├── styles.css           # 页面基础样式
+│   └── realtime.css         # 自动刷新、详情页、成份股等增强样式
 ├── index.html               # 当前静态前端入口
 └── web/                     # 后续如果引入 Vite / React，可迁移到该目录
 ```
@@ -229,6 +170,5 @@ jijin-show/
 1. 增加后端 API 适配层，把 Mock 数据替换为实时数据。
 2. 增加板块分时走势弹窗。
 3. 增加 ETF 映射表，点击板块后展示可交易基金。
-4. 增加数据刷新策略，例如 15 秒或 30 秒轮询。
-5. 增加“异动板块”独立列表，例如强势共振、资金抢筹、高位分歧、板块退潮。
-6. 用 `sector_flow_rank_daily` 和 `fund_index_master` 做第一版「板块资金流 -> ETF / 指数基金」映射。
+4. 增加“异动板块”独立列表，例如强势共振、资金抢筹、高位分歧、板块退潮。
+5. 用 `sector_flow_rank_daily` 和 `fund_index_master` 做第一版「板块资金流 -> ETF / 指数基金」映射。
