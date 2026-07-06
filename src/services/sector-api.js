@@ -24,9 +24,16 @@ const STOCK_POOLS = {
 
 const CODE_PREFIX = ['600', '601', '603', '000', '002', '300', '688'];
 
-function getApiBase() {
+function normalizeApiBase(value) {
+  return String(value || '').trim().replace(/\/$/, '');
+}
+
+export function getApiBase() {
   try {
-    return window.localStorage.getItem('JIJIN_API_BASE')?.replace(/\/$/, '') || '';
+    const configBase = normalizeApiBase(window.JIJIN_CONFIG?.API_BASE);
+    if (configBase) return configBase;
+
+    return normalizeApiBase(window.localStorage.getItem('JIJIN_API_BASE'));
   } catch {
     return '';
   }
@@ -125,7 +132,8 @@ function getMockEtfQuotes(labels = []) {
 
 /**
  * 当前默认使用前端 Mock 数据。
- * 设置 localStorage.JIJIN_API_BASE 后会切换到真实后端，例如：http://localhost:8000
+ * 生产部署优先读取 window.JIJIN_CONFIG.API_BASE。
+ * 本地调试也可以设置 localStorage.JIJIN_API_BASE，例如：http://localhost:8000。
  */
 export function getSectorData(type) {
   return SECTOR_DATA[type] || [];
