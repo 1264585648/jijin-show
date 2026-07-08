@@ -6,6 +6,7 @@
     <title>基金大盘 · 板块实时热力图</title>
     <link rel="stylesheet" href="./src/styles.css" />
     <link rel="stylesheet" href="./src/realtime.css" />
+    <link rel="stylesheet" href="./src/api-status.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -13,13 +14,13 @@
         <div>
           <div class="eyebrow">Jijin Show · Sector Heatmap</div>
           <h1>板块实时热力图</h1>
-          <p class="subtitle">用涨跌、资金、成交和扩散度识别今日市场主线。</p>
+          <p class="subtitle">用真实接口返回的涨跌、资金、成交和扩散度识别今日市场主线。</p>
         </div>
         <div class="market-card">
           <div class="market-status">
             <span class="status-dot"></span>
             <div>
-              <strong id="dataModeLabel">Mock 模拟盘中</strong>
+              <strong id="dataModeLabel">未连接后端</strong>
               <span id="updatedAt">--</span>
             </div>
           </div>
@@ -99,7 +100,7 @@
 
     <div class="tooltip" id="tooltip"></div>
     <script src="./src/config.js"></script>
-    <script type="module" src="./src/main.js"></script>
     <script type="module" src="./src/data-mode-status.js"></script>
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>
