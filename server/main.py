@@ -7,6 +7,7 @@ from typing import Any, Callable, Literal
 
 import akshare as ak
 import pandas as pd
+import requests
 from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,14 @@ APP_VERSION = "0.3.0"
 SOURCE_NAME = "AKShare / 东方财富"
 CACHE_TTL_SECONDS = int(os.getenv("JIJIN_CACHE_TTL", "30"))
 CACHE_MAXSIZE = int(os.getenv("JIJIN_CACHE_MAXSIZE", "256"))
+UPSTREAM_RETRY_DELAYS = (1, 2, 4)
+EASTMONEY_CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+EASTMONEY_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    ),
+}
 
 
 def get_cors_origins() -> list[str]:
@@ -42,6 +51,8 @@ app.add_middleware(
 )
 
 CACHE = TTLCache(maxsize=CACHE_MAXSIZE, ttl=CACHE_TTL_SECONDS)
+STALE_CACHE: dict[str, pd.DataFrame] = {}
+STALE_CACHE_UPDATED_AT: dict[str, int] = {}
 
 PERIOD_MAP: dict[str, str] = {
     "today": "今日",
@@ -161,8 +172,7 @@ def pick_first(row: pd.Series, names: list[str], default: Any = None) -> Any:
     return default
 
 
-def call_loader(cache_key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
-    df = loader()
+def validate_dataframe(cache_key: str, df: Any) -> pd.DataFrame:
     if not isinstance(df, pd.DataFrame):
         raise UpstreamDataError(f"{cache_key} 返回值不是 DataFrame")
     if df.empty:
@@ -170,18 +180,295 @@ def call_loader(cache_key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFr
     return df
 
 
+def call_with_retry(cache_key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
+    last_exc: Exception | None = None
+    for attempt in range(len(UPSTREAM_RETRY_DELAYS) + 1):
+        try:
+            return validate_dataframe(cache_key, loader())
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt >= len(UPSTREAM_RETRY_DELAYS):
+                break
+            time.sleep(UPSTREAM_RETRY_DELAYS[attempt])
+    raise UpstreamDataError(f"{cache_key} 上游连续失败: {last_exc}") from last_exc
+
+
+def call_loader(cache_key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
+    df = loader()
+    return validate_dataframe(cache_key, df)
+
+
 def cached_dataframe(cache_key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
     cached = CACHE.get(cache_key)
     if cached is not None:
-        return cached.copy()
-    df = call_loader(cache_key, loader)
+        df = cached.copy()
+        df.attrs["stale"] = False
+        return df
+
+    try:
+        df = call_with_retry(cache_key, loader)
+    except Exception as exc:
+        stale_df = STALE_CACHE.get(cache_key)
+        if stale_df is None:
+            raise
+        df = stale_df.copy()
+        df.attrs["stale"] = True
+        df.attrs["error"] = "upstream failed, served stale cache"
+        df.attrs["upstreamError"] = str(exc)
+        df.attrs["staleUpdatedAt"] = STALE_CACHE_UPDATED_AT.get(cache_key)
+        return df
+
+    now = now_ts()
+    df.attrs["stale"] = False
     CACHE[cache_key] = df.copy()
+    STALE_CACHE[cache_key] = df.copy()
+    STALE_CACHE_UPDATED_AT[cache_key] = now
     return df
+
+
+def dataframe_warning(df: pd.DataFrame, cache_key: str) -> dict[str, Any] | None:
+    if not df.attrs.get("stale"):
+        return None
+    return {
+        "cacheKey": cache_key,
+        "error": df.attrs.get("error", "upstream failed, served stale cache"),
+        "upstreamError": df.attrs.get("upstreamError", ""),
+        "staleUpdatedAt": df.attrs.get("staleUpdatedAt"),
+    }
+
+
+def response_cache_state(*items: tuple[str, pd.DataFrame]) -> dict[str, Any]:
+    warnings = [
+        warning
+        for cache_key, df in items
+        if (warning := dataframe_warning(df, cache_key)) is not None
+    ]
+    return {
+        "stale": bool(warnings),
+        "error": "upstream failed, served stale cache" if warnings else None,
+        "warnings": warnings,
+    }
+
+
+def fetch_eastmoney_clist(cache_key: str, params: dict[str, Any]) -> pd.DataFrame:
+    page_size = int(params.get("pz", 100))
+    first_params = {**params, "pn": 1, "pz": page_size}
+    response = requests.get(
+        EASTMONEY_CLIST_URL,
+        params=first_params,
+        headers=EASTMONEY_HEADERS,
+        timeout=20,
+    )
+    response.raise_for_status()
+    data_json = response.json()
+    data = data_json.get("data") or {}
+    total = safe_int(data.get("total"))
+    rows = list(data.get("diff") or [])
+
+    if not rows:
+        raise UpstreamDataError(f"{cache_key} 东方财富直连返回空数据")
+
+    total_page = max(1, math.ceil(total / page_size))
+    for page in range(2, total_page + 1):
+        page_params = {**params, "pn": page, "pz": page_size}
+        response = requests.get(
+            EASTMONEY_CLIST_URL,
+            params=page_params,
+            headers=EASTMONEY_HEADERS,
+            timeout=20,
+        )
+        response.raise_for_status()
+        page_json = response.json()
+        rows.extend((page_json.get("data") or {}).get("diff") or [])
+
+    return validate_dataframe(cache_key, pd.DataFrame(rows))
+
+
+def normalize_numeric_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    for column in columns:
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+    return df
+
+
+def eastmoney_board_df(sector_type: SectorType) -> pd.DataFrame:
+    if sector_type == "industry":
+        params = {
+            "pn": "1",
+            "pz": "100",
+            "po": "1",
+            "np": "1",
+            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+            "fltt": "2",
+            "invt": "2",
+            "fid": "f3",
+            "fs": "m:90 t:2 f:!50",
+            "fields": (
+                "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,"
+                "f18,f20,f21,f23,f24,f25,f26,f22,f33,f11,f62,f128,f136,"
+                "f115,f152,f124,f107,f104,f105,f140,f141,f207,f208,f209,f222"
+            ),
+        }
+    else:
+        params = {
+            "pn": "1",
+            "pz": "100",
+            "po": "1",
+            "np": "1",
+            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+            "fltt": "2",
+            "invt": "2",
+            "fid": "f12",
+            "fs": "m:90 t:3 f:!50",
+            "fields": (
+                "f2,f3,f4,f8,f12,f14,f15,f16,f17,f18,f20,f21,f24,f25,f22,"
+                "f33,f11,f62,f128,f124,f107,f104,f105,f136"
+            ),
+        }
+
+    raw_df = fetch_eastmoney_clist(f"board:{sector_type}:eastmoney", params)
+    df = pd.DataFrame(
+        {
+            "排名": range(1, len(raw_df) + 1),
+            "板块名称": raw_df.get("f14"),
+            "板块代码": raw_df.get("f12"),
+            "最新价": raw_df.get("f2"),
+            "涨跌额": raw_df.get("f4"),
+            "涨跌幅": raw_df.get("f3"),
+            "总市值": raw_df.get("f20"),
+            "换手率": raw_df.get("f8"),
+            "上涨家数": raw_df.get("f104"),
+            "下跌家数": raw_df.get("f105"),
+            "领涨股票": raw_df.get("f128"),
+            "领涨股票-涨跌幅": raw_df.get("f136"),
+        }
+    )
+    return normalize_numeric_columns(
+        df,
+        ["最新价", "涨跌额", "涨跌幅", "总市值", "换手率", "上涨家数", "下跌家数", "领涨股票-涨跌幅"],
+    )
+
+
+def eastmoney_fund_flow_df(sector_type: SectorType, period: Period) -> pd.DataFrame:
+    sector_type_map = {"industry": "2", "concept": "3"}
+    indicator_map = {
+        "today": [
+            "f62",
+            "1",
+            "f12,f14,f2,f3,f62,f184,f66,f69,f72,f75,f78,f81,f84,f87,f204,f205,f124",
+            "今日",
+        ],
+        "5d": [
+            "f164",
+            "5",
+            "f12,f14,f2,f109,f164,f165,f166,f167,f168,f169,f170,f171,f172,f173,f257,f258,f124",
+            "5日",
+        ],
+        "10d": [
+            "f174",
+            "10",
+            "f12,f14,f2,f160,f174,f175,f176,f177,f178,f179,f180,f181,f182,f183,f260,f261,f124",
+            "10日",
+        ],
+    }
+    fid0, stat, fields, prefix = indicator_map[period]
+    params = {
+        "pn": "1",
+        "pz": "100",
+        "po": "1",
+        "np": "1",
+        "ut": "b2884a393a59ad64002292a3e90d46a5",
+        "fltt": "2",
+        "invt": "2",
+        "fid0": fid0,
+        "fs": f"m:90 t:{sector_type_map[sector_type]}",
+        "stat": stat,
+        "fields": fields,
+        "_": int(time.time() * 1000),
+    }
+    raw_df = fetch_eastmoney_clist(f"fund:{sector_type}:{period}:eastmoney", params)
+
+    if period == "today":
+        df = pd.DataFrame(
+            {
+                "名称": raw_df.get("f14"),
+                "今日涨跌幅": raw_df.get("f3"),
+                "今日主力净流入-净额": raw_df.get("f62"),
+                "今日主力净流入-净占比": raw_df.get("f184"),
+                "今日超大单净流入-净额": raw_df.get("f66"),
+                "今日超大单净流入-净占比": raw_df.get("f69"),
+                "今日大单净流入-净额": raw_df.get("f72"),
+                "今日大单净流入-净占比": raw_df.get("f75"),
+                "今日中单净流入-净额": raw_df.get("f78"),
+                "今日中单净流入-净占比": raw_df.get("f81"),
+                "今日小单净流入-净额": raw_df.get("f84"),
+                "今日小单净流入-净占比": raw_df.get("f87"),
+                "今日主力净流入最大股": raw_df.get("f204"),
+            }
+        )
+    else:
+        field_map = {
+            "5d": ["f109", "f164", "f165", "f166", "f167", "f168", "f169", "f170", "f171", "f172", "f173", "f257"],
+            "10d": ["f160", "f174", "f175", "f176", "f177", "f178", "f179", "f180", "f181", "f182", "f183", "f260"],
+        }
+        change, main, main_ratio, super_large, super_large_ratio, big, big_ratio, middle, middle_ratio, small, small_ratio, top = field_map[period]
+        df = pd.DataFrame(
+            {
+                "名称": raw_df.get("f14"),
+                f"{prefix}涨跌幅": raw_df.get(change),
+                f"{prefix}主力净流入-净额": raw_df.get(main),
+                f"{prefix}主力净流入-净占比": raw_df.get(main_ratio),
+                f"{prefix}超大单净流入-净额": raw_df.get(super_large),
+                f"{prefix}超大单净流入-净占比": raw_df.get(super_large_ratio),
+                f"{prefix}大单净流入-净额": raw_df.get(big),
+                f"{prefix}大单净流入-净占比": raw_df.get(big_ratio),
+                f"{prefix}中单净流入-净额": raw_df.get(middle),
+                f"{prefix}中单净流入-净占比": raw_df.get(middle_ratio),
+                f"{prefix}小单净流入-净额": raw_df.get(small),
+                f"{prefix}小单净流入-净占比": raw_df.get(small_ratio),
+                f"{prefix}主力净流入最大股": raw_df.get(top),
+            }
+        )
+
+    numeric_columns = [column for column in df.columns if column != "名称" and "最大股" not in column]
+    df = normalize_numeric_columns(df, numeric_columns)
+    main_column = f"{prefix}主力净流入-净额"
+    if main_column in df.columns:
+        df.sort_values([main_column], ascending=False, inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    df.insert(0, "序号", range(1, len(df) + 1))
+    return df
+
+
+def load_with_fallback(
+    cache_key: str,
+    primary: Callable[[], pd.DataFrame],
+    fallback: Callable[[], pd.DataFrame],
+) -> pd.DataFrame:
+    try:
+        return call_loader(cache_key, primary)
+    except Exception as primary_exc:
+        try:
+            df = call_loader(f"{cache_key}:fallback", fallback)
+        except Exception as fallback_exc:
+            raise UpstreamDataError(
+                f"{cache_key} primary failed: {primary_exc}; fallback failed: {fallback_exc}"
+            ) from fallback_exc
+        df.attrs["fallback"] = True
+        df.attrs["primaryError"] = str(primary_exc)
+        return df
 
 
 def get_board_df(sector_type: SectorType) -> pd.DataFrame:
     meta = SECTOR_META[sector_type]
-    return cached_dataframe(f"board:{sector_type}", meta["name_func"])
+    return cached_dataframe(
+        f"board:{sector_type}",
+        lambda: load_with_fallback(
+            f"board:{sector_type}",
+            lambda: eastmoney_board_df(sector_type),
+            meta["name_func"],
+        ),
+    )
 
 
 def get_fund_flow_df(sector_type: SectorType, period: Period) -> pd.DataFrame:
@@ -189,7 +476,11 @@ def get_fund_flow_df(sector_type: SectorType, period: Period) -> pd.DataFrame:
     indicator = PERIOD_MAP[period]
     return cached_dataframe(
         f"fund:{sector_type}:{period}",
-        lambda: ak.stock_sector_fund_flow_rank(indicator=indicator, sector_type=meta["fund_type"]),
+        lambda: load_with_fallback(
+            f"fund:{sector_type}:{period}",
+            lambda: eastmoney_fund_flow_df(sector_type, period),
+            lambda: ak.stock_sector_fund_flow_rank(indicator=indicator, sector_type=meta["fund_type"]),
+        ),
     )
 
 
@@ -349,6 +640,10 @@ def sector_heatmap(
 
     nodes = [node for node in nodes if node["name"]]
     nodes.sort(key=lambda item: (item["mainNetIn"], item["changePct"]), reverse=True)
+    cache_state = response_cache_state(
+        (f"board:{type}", board_df),
+        (f"fund:{type}:{period}", fund_df),
+    )
 
     return {
         "market": "A股",
@@ -356,6 +651,9 @@ def sector_heatmap(
         "period": period,
         "source": SOURCE_NAME,
         "updatedAt": now_ts(),
+        "stale": cache_state["stale"],
+        "error": cache_state["error"],
+        "warnings": cache_state["warnings"],
         "count": min(len(nodes), limit),
         "nodes": nodes[:limit],
     }
@@ -380,6 +678,7 @@ def sector_stocks(
     stocks = [normalize_stock(row) for _, row in df.iterrows()]
     stocks = [stock for stock in stocks if stock["name"]]
     stocks.sort(key=lambda item: (item["changePct"], item["amount"]), reverse=True)
+    cache_state = response_cache_state((f"stocks:{type}:{sector_symbol}", df))
 
     return {
         "sectorCode": resolved_code,
@@ -387,6 +686,9 @@ def sector_stocks(
         "type": type,
         "source": SOURCE_NAME,
         "updatedAt": now_ts(),
+        "stale": cache_state["stale"],
+        "error": cache_state["error"],
+        "warnings": cache_state["warnings"],
         "count": min(len(stocks), limit),
         "stocks": stocks[:limit],
     }
@@ -411,10 +713,14 @@ def etf_quotes(codes: str = Query("", description="ETF 代码，英文逗号分�
 
     quote_order = {code: index for index, code in enumerate(codes.split(","))}
     quotes.sort(key=lambda item: quote_order.get(item["code"], 999))
+    cache_state = response_cache_state(("etf:spot", df))
 
     return {
         "source": SOURCE_NAME,
         "updatedAt": now_ts(),
+        "stale": cache_state["stale"],
+        "error": cache_state["error"],
+        "warnings": cache_state["warnings"],
         "count": len(quotes),
         "quotes": quotes,
     }
@@ -436,6 +742,11 @@ def debug_columns(
     return {
         "source": SOURCE_NAME,
         "updatedAt": now_ts(),
+        "stale": response_cache_state(
+            (f"board:{type}", board_df),
+            (f"fund:{type}:{period}", fund_df),
+            ("etf:spot", etf_df),
+        )["stale"],
         "boardColumns": list(map(str, board_df.columns)),
         "fundFlowColumns": list(map(str, fund_df.columns)),
         "etfColumns": list(map(str, etf_df.columns)),
@@ -449,5 +760,38 @@ def cache_status() -> dict[str, Any]:
         "maxSize": CACHE_MAXSIZE,
         "ttlSeconds": CACHE_TTL_SECONDS,
         "keys": list(CACHE.keys()),
+        "staleKeys": list(STALE_CACHE.keys()),
+        "staleUpdatedAt": STALE_CACHE_UPDATED_AT,
         "updatedAt": now_ts(),
+    }
+
+
+@app.get("/api/warmup")
+def warmup() -> dict[str, Any]:
+    checks: dict[str, dict[str, Any]] = {}
+    loaders: list[tuple[str, Callable[[], pd.DataFrame]]] = [
+        ("board:industry", lambda: get_board_df("industry")),
+        ("fund:industry:today", lambda: get_fund_flow_df("industry", "today")),
+        ("board:concept", lambda: get_board_df("concept")),
+        ("fund:concept:today", lambda: get_fund_flow_df("concept", "today")),
+        ("etf:spot", get_etf_spot_df),
+    ]
+
+    for key, loader in loaders:
+        try:
+            df = loader()
+            checks[key] = {
+                "ok": True,
+                "rows": len(df),
+                "stale": bool(df.attrs.get("stale")),
+                "error": df.attrs.get("error"),
+            }
+        except Exception as exc:  # noqa: BLE001
+            checks[key] = {"ok": False, "rows": 0, "stale": False, "error": str(exc)}
+
+    return {
+        "source": SOURCE_NAME,
+        "updatedAt": now_ts(),
+        "ok": all(item["ok"] for item in checks.values()),
+        "checks": checks,
     }
