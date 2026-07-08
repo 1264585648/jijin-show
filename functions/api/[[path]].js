@@ -4,7 +4,7 @@ function normalizeOrigin(value) {
   return String(value || '').trim().replace(/\/$/, '');
 }
 
-function getBackendOrigin(env) {
+function getBackendOrigin(env = {}) {
   return normalizeOrigin(env.JIJIN_API_BACKEND || env.API_BASE || DEFAULT_BACKEND_ORIGIN);
 }
 
@@ -21,7 +21,7 @@ function getCorsHeaders(request) {
 }
 
 export async function onRequest(context) {
-  const { request, env } = context;
+  const { request, env = {} } = context;
   const corsHeaders = getCorsHeaders(request);
 
   if (request.method === 'OPTIONS') {
