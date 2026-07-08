@@ -18,7 +18,7 @@ require_cmd python3
 fetch_json() {
   local name="$1"
   local url="$2"
-  echo "-> $name"
+  echo "-> $name" >&2
   curl -fsS "$url"
 }
 
@@ -34,10 +34,7 @@ assert_json "cache status" "$API_BASE/api/cache"
 industry_payload="$(fetch_json "industry heatmap" "$API_BASE/api/sector/heatmap?type=industry&period=today&limit=20")"
 concept_payload="$(fetch_json "concept heatmap" "$API_BASE/api/sector/heatmap?type=concept&period=today&limit=20")"
 
-printf '%s' "$industry_payload" | python3 - <<'PY'
-import json
-import sys
-
+printf '%s' "$industry_payload" | python3 -c 'import json, sys
 payload = json.load(sys.stdin)
 nodes = payload.get("nodes") or []
 assert payload.get("source"), "missing source"
@@ -45,29 +42,19 @@ assert nodes, "industry heatmap nodes should not be empty"
 first = nodes[0]
 for key in ("id", "name", "changePct", "mainNetIn", "mainNetInRatio"):
     assert key in first, f"missing node key: {key}"
-print("industry first node:", first["id"], first["name"])
-PY
+print("industry first node:", first["id"], first["name"])'
 
-first_sector="$(printf '%s' "$industry_payload" | python3 - <<'PY'
-import json
-import sys
-
+first_sector="$(printf '%s' "$industry_payload" | python3 -c 'import json, sys
 payload = json.load(sys.stdin)
-print(payload["nodes"][0]["id"])
-PY
-)"
+print(payload["nodes"][0]["id"])')"
 
 assert_json "industry stocks" "$API_BASE/api/sector/$first_sector/stocks?type=industry&limit=10"
 assert_json "ETF quotes" "$API_BASE/api/etf/quotes?codes=512480,159995,515230"
 assert_json "debug columns" "$API_BASE/api/debug/columns?type=industry&period=today"
 
-printf '%s' "$concept_payload" | python3 - <<'PY'
-import json
-import sys
-
+printf '%s' "$concept_payload" | python3 -c 'import json, sys
 payload = json.load(sys.stdin)
 assert payload.get("nodes"), "concept heatmap nodes should not be empty"
-print("concept nodes:", len(payload["nodes"]))
-PY
+print("concept nodes:", len(payload["nodes"]))'
 
 echo "Smoke test passed."
