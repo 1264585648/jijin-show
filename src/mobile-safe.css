@@ -1,0 +1,275 @@
+/* Mobile overlap guards: prevent compressed labels, numbers and controls from covering each other. */
+@media (max-width: 640px) {
+  .app-shell,
+  .topbar,
+  .market-card,
+  .market-status,
+  .market-actions,
+  .summary-card,
+  .control-card,
+  .workspace,
+  .panel,
+  .panel-head,
+  .rank-block,
+  .rank-item,
+  .etf-watch-item,
+  .heatmap-panel,
+  .heatmap,
+  .tile,
+  .detail-panel,
+  .detail-hero,
+  .metric,
+  .etf-card,
+  .flow-item {
+    min-width: 0;
+  }
+
+  .topbar > div:first-child,
+  .market-status > div,
+  .panel-head > div,
+  .rank-item > div,
+  .etf-watch-item > div,
+  .tile > div,
+  .tile-top,
+  .detail-hero,
+  .metric,
+  .etf-card > div,
+  .flow-item > div,
+  .stock-row > *,
+  .summary-card > * {
+    min-width: 0;
+  }
+
+  .market-actions {
+    flex-wrap: wrap;
+    overflow: visible;
+    border-radius: 18px;
+  }
+
+  .market-actions .ghost-button {
+    flex: 1 1 104px;
+  }
+
+  .market-actions .switch-control {
+    flex: 1 1 104px;
+    justify-content: center;
+  }
+
+  .market-actions .refresh-countdown {
+    flex: 0 0 auto;
+    min-width: 48px;
+  }
+
+  .market-status strong,
+  .market-status span:last-child,
+  .summary-label,
+  .summary-note,
+  .rank-title,
+  .rank-name,
+  .rank-meta,
+  .tile-name,
+  .tile-meta,
+  .detail-hero h2,
+  .tag,
+  .metric span,
+  .metric strong,
+  .etf-pill,
+  .etf-card strong,
+  .etf-card span,
+  .etf-quote-line,
+  .etf-risk-tags,
+  .flow-item span,
+  .flow-item strong,
+  .table-headline span,
+  .loading-box {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .rank-name,
+  .rank-meta {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .rank-name {
+    -webkit-line-clamp: 2;
+    line-height: 1.35;
+  }
+
+  .rank-meta {
+    -webkit-line-clamp: 2;
+    line-height: 1.45;
+  }
+
+  .rank-title {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .rank-title strong,
+  .rank-title span {
+    min-width: 0;
+  }
+
+  .rank-title span {
+    justify-self: end;
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rank-item,
+  .etf-watch-item {
+    grid-template-columns: 24px minmax(0, 1fr) max-content;
+  }
+
+  .rank-value {
+    max-width: 74px;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tile {
+    height: auto;
+    min-height: 128px;
+    gap: 12px;
+  }
+
+  .tile-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+  }
+
+  .tile-name {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .tile-badge {
+    max-width: 112px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tile-change {
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+
+  .tile-meta {
+    white-space: normal;
+  }
+
+  .tile-meta span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .summary-value {
+    min-width: 0;
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+
+  .summary-value small {
+    flex: 0 0 auto;
+  }
+
+  .segmented button {
+    min-height: 38px;
+    line-height: 1.15;
+  }
+
+  .detail-tabs {
+    white-space: nowrap;
+  }
+
+  .tag-row,
+  .etf-list,
+  .etf-risk-tags {
+    min-width: 0;
+  }
+
+  .tag,
+  .etf-pill,
+  .etf-risk-tags span {
+    max-width: 100%;
+    line-height: 1.35;
+  }
+
+  .metric-list {
+    align-items: stretch;
+  }
+
+  .metric strong {
+    line-height: 1.25;
+  }
+
+  .etf-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .etf-score {
+    flex: none;
+  }
+
+  .flow-item > div:first-child {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .flow-item strong {
+    text-align: right;
+  }
+
+  .table-headline span {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 380px) {
+  .market-actions .ghost-button,
+  .market-actions .switch-control {
+    flex-basis: 100%;
+  }
+
+  .market-actions .refresh-countdown {
+    width: 100%;
+  }
+
+  .tile-top {
+    grid-template-columns: 1fr;
+  }
+
+  .tile-badge {
+    max-width: 100%;
+    justify-self: start;
+  }
+
+  .rank-item,
+  .etf-watch-item {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .rank-value {
+    grid-column: 2;
+    justify-self: start;
+    max-width: 100%;
+    text-align: left;
+  }
+}
