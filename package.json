@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/main.js && node --check src/services/sector-api.js && node --check src/data/etf-map.js && node --check src/data-mode-status.js",
+    "check": "node --check src/main.js && node --check src/overview.js && node --check src/services/sector-api.js && node --check src/data/etf-map.js && node --check src/data-mode-status.js",
     "serve": "python3 -m http.server 5173"
   }
 }

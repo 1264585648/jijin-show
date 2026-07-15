@@ -37,6 +37,7 @@ jobs:
       - name: Validate frontend modules
         run: |
           node --check src/main.js
+          node --check src/overview.js
           node --check src/services/sector-api.js
           node --check src/data/etf-map.js
           node --check src/data-mode-status.js

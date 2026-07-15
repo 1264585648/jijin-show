@@ -3,106 +3,157 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>基金大盘 · 板块实时热力图</title>
-    <link rel="stylesheet" href="./src/styles.css" />
-    <link rel="stylesheet" href="./src/realtime.css" />
-    <link rel="stylesheet" href="./src/api-status.css" />
-    <link rel="stylesheet" href="./src/responsive.css" />
-    <link rel="stylesheet" href="./src/mobile-safe.css" />
+    <meta name="color-scheme" content="dark" />
+    <title>基金大盘 · 市场总览</title>
+    <link rel="stylesheet" href="./src/overview.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="topbar">
+    <header class="app-header">
+      <a class="brand" href="./index.html" aria-label="基金大盘首页">基金大盘</a>
+      <nav class="primary-nav" aria-label="主要导航">
+        <a class="nav-link is-active" href="./index.html" aria-current="page">市场总览</a>
+        <a class="nav-link" href="./heatmap.html">板块热力</a>
+        <button class="nav-link" type="button" data-coming-soon="资金流向">资金流向</button>
+        <button class="nav-link" type="button" data-coming-soon="ETF观察池">ETF观察池</button>
+      </nav>
+      <div class="header-market">
+        <div class="market-session" id="marketSession">
+          <span class="session-dot" aria-hidden="true"></span>
+          <span id="marketSessionLabel">判断交易状态</span>
+        </div>
+        <time class="market-clock" id="marketClock">--:--:--</time>
+        <button class="icon-button" id="refreshBtn" type="button" aria-label="刷新市场数据" title="刷新市场数据">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0 2 5.3M20 4v7h-7" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="overview-shell">
+      <section class="data-notice is-hidden" id="dataNotice" role="status">
         <div>
-          <div class="eyebrow">Jijin Show · Sector Heatmap</div>
-          <h1>板块实时热力图</h1>
-          <p class="subtitle">用真实接口返回的涨跌、资金、成交和扩散度识别今日市场主线。</p>
+          <strong id="dataNoticeTitle">数据暂不可用</strong>
+          <p id="dataNoticeText">正在连接真实数据接口。</p>
         </div>
-        <div class="market-card">
-          <div class="market-status">
-            <span class="status-dot"></span>
-            <div>
-              <strong id="dataModeLabel">未连接后端</strong>
-              <span id="updatedAt">--</span>
-            </div>
-          </div>
-          <div class="market-actions">
-            <button id="refreshBtn" class="ghost-button" type="button">手动刷新</button>
-            <label class="switch-control">
-              <input id="autoRefreshToggle" type="checkbox" checked />
-              <span>自动刷新</span>
-            </label>
-            <span id="refreshCountdown" class="refresh-countdown">15s</span>
-          </div>
-        </div>
-      </header>
+        <button id="dismissNotice" type="button" aria-label="关闭提示">关闭</button>
+      </section>
 
-      <section class="summary-grid" id="summaryGrid"></section>
-
-      <section class="control-card">
-        <div class="control-group">
-          <span>板块类型</span>
-          <div class="segmented" data-control="type">
-            <button class="is-active" data-value="industry">行业板块</button>
-            <button data-value="concept">概念板块</button>
+      <section class="judgment-panel surface" aria-labelledby="judgmentTitle">
+        <div class="judgment-copy">
+          <div class="section-kicker">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 19V9m6 10V5m6 14v-7m4 7V3" />
+            </svg>
+            今日市场判断
           </div>
+          <h1 id="judgmentTitle">等待真实市场数据</h1>
+          <p id="judgmentDescription">接入数据后，将根据涨跌家数、主力资金和板块扩散度生成市场判断。</p>
         </div>
-        <div class="control-group">
-          <span>显示模式</span>
-          <div class="segmented" data-control="mode">
-            <button class="is-active" data-value="change">涨跌热力</button>
-            <button data-value="fund">资金热力</button>
-            <button data-value="hot">综合热度</button>
-          </div>
-        </div>
-        <div class="control-group">
-          <span>面积口径</span>
-          <div class="segmented" data-control="area">
-            <button class="is-active" data-value="amount">成交额</button>
-            <button data-value="mainNetInAbs">资金规模</button>
-            <button data-value="marketCap">总市值</button>
-          </div>
-        </div>
-        <div class="control-group search-box">
-          <span>快速过滤</span>
-          <input id="searchInput" type="search" placeholder="搜索板块、领涨股、ETF" />
+        <div class="judgment-tags" id="judgmentTags" aria-label="市场状态">
+          <span class="status-tag is-neutral">等待数据</span>
         </div>
       </section>
 
-      <main class="workspace">
-        <aside class="sidebar panel">
-          <div class="panel-head">
-            <div>
-              <span class="eyebrow">Leaderboard</span>
-              <h2>实时榜单</h2>
+      <section class="kpi-grid" aria-label="市场核心指标">
+        <article class="kpi-card surface">
+          <div class="kpi-icon is-blue" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M6 3h12M8 3l4 7 4-7m-8 8h8m-8 4h8m-4-5v11" /></svg>
+          </div>
+          <div class="kpi-content">
+            <span class="kpi-label">全市场成交额</span>
+            <strong class="kpi-value" id="totalAmount">--</strong>
+            <span class="kpi-note" id="amountNote">等待数据</span>
+          </div>
+        </article>
+
+        <article class="kpi-card surface">
+          <div class="kpi-icon is-red" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m4 17 5-5 4 4 7-8m-5 0h5v5" /></svg>
+          </div>
+          <div class="kpi-content">
+            <span class="kpi-label">主力净流入</span>
+            <strong class="kpi-value" id="totalFund">--</strong>
+            <span class="kpi-note" id="fundNote">等待数据</span>
+          </div>
+        </article>
+
+        <article class="kpi-card surface">
+          <div class="kpi-icon is-violet" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 19V9m5 10V5m5 14v-7m5 7V8" /></svg>
+          </div>
+          <div class="kpi-content">
+            <span class="kpi-label">上涨家数</span>
+            <div class="breadth-values">
+              <strong class="kpi-value positive" id="upCount">--</strong>
+              <span class="breadth-divider"></span>
+              <span class="breadth-down"><small>下跌</small><strong id="downCount">--</strong></span>
             </div>
+            <span class="kpi-note" id="breadthNote">等待数据</span>
           </div>
-          <div id="rankLists" class="rank-lists"></div>
-        </aside>
+        </article>
 
-        <section class="heatmap-panel panel">
-          <div class="panel-head heatmap-head">
+        <article class="kpi-card surface">
+          <div class="kpi-icon is-amber" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m12 3 2.1 4.3 4.7.7-3.4 3.3.8 4.7-4.2-2.2L7.8 16l.8-4.7L5.2 8l4.7-.7L12 3Z" /></svg>
+          </div>
+          <div class="kpi-content">
+            <span class="kpi-label">强势主线</span>
+            <strong class="kpi-value warning" id="strongCount">--</strong>
+            <span class="kpi-note" id="strongNote">等待数据</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="chart-panel surface">
+          <div class="panel-heading">
             <div>
-              <span class="eyebrow">Live Heatmap</span>
-              <h2 id="heatmapTitle">行业板块 · 涨跌热力</h2>
+              <h2>市场宽度与主力资金</h2>
+              <p>基于真实接口刷新样本记录，不补造历史行情</p>
             </div>
-            <div class="legend" id="legend"></div>
+            <span class="sample-count" id="sampleCount">0 个样本</span>
           </div>
-          <div id="heatmap" class="heatmap" aria-label="板块实时热力图"></div>
-        </section>
+          <div class="chart-legend" id="chartLegend" aria-hidden="true">
+            <span><i class="legend-line is-red"></i>上涨家数占比（左轴）</span>
+            <span><i class="legend-line is-blue"></i>主力净流入（右轴）</span>
+          </div>
+          <div class="market-chart" id="marketChart" aria-label="市场宽度与主力净流入趋势图"></div>
+          <p class="chart-note">注：上涨家数占比 = 上涨家数 / 全市场家数；刷新后持续积累真实样本。</p>
+        </article>
 
-        <aside class="detail-panel panel" id="detailPanel">
-          <div class="empty-detail">
-            <span>选择一个板块</span>
-            <p>查看资金结构、领涨股、内部扩散度、成份股和相关 ETF。</p>
-          </div>
+        <aside class="rank-column" aria-label="市场强弱方向">
+          <section class="rank-panel surface">
+            <div class="rank-heading">
+              <h2>强势方向</h2>
+              <span>涨幅居前</span>
+            </div>
+            <ol class="rank-list" id="strongRanks"></ol>
+          </section>
+          <section class="rank-panel surface">
+            <div class="rank-heading">
+              <h2>弱势方向</h2>
+              <span>跌幅居前</span>
+            </div>
+            <ol class="rank-list" id="weakRanks"></ol>
+          </section>
         </aside>
-      </main>
-    </div>
+      </section>
 
-    <div class="tooltip" id="tooltip"></div>
+      <section class="signals-panel surface">
+        <div class="signals-heading">
+          <h2>关键异动</h2>
+          <span id="updatedAt">尚未更新</span>
+        </div>
+        <div class="signal-grid" id="signalGrid">
+          <div class="signal-empty">等待真实数据后生成异动信号</div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
     <script src="./src/config.js"></script>
-    <script type="module" src="./src/data-mode-status.js"></script>
-    <script type="module" src="./src/main.js"></script>
+    <script type="module" src="./src/overview.js"></script>
   </body>
 </html>

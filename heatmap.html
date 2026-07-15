@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>基金大盘 · 板块实时热力图</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+    <link rel="stylesheet" href="./src/realtime.css" />
+    <link rel="stylesheet" href="./src/api-status.css" />
+    <link rel="stylesheet" href="./src/responsive.css" />
+    <link rel="stylesheet" href="./src/mobile-safe.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Jijin Show · Sector Heatmap</div>
+          <h1>板块实时热力图</h1>
+          <p class="subtitle">用真实接口返回的涨跌、资金、成交和扩散度识别今日市场主线。</p>
+          <a class="ghost-button" href="./index.html">返回市场总览</a>
+        </div>
+        <div class="market-card">
+          <div class="market-status">
+            <span class="status-dot"></span>
+            <div>
+              <strong id="dataModeLabel">未连接后端</strong>
+              <span id="updatedAt">--</span>
+            </div>
+          </div>
+          <div class="market-actions">
+            <button id="refreshBtn" class="ghost-button" type="button">手动刷新</button>
+            <label class="switch-control">
+              <input id="autoRefreshToggle" type="checkbox" checked />
+              <span>自动刷新</span>
+            </label>
+            <span id="refreshCountdown" class="refresh-countdown">15s</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="summary-grid" id="summaryGrid"></section>
+
+      <section class="control-card">
+        <div class="control-group">
+          <span>板块类型</span>
+          <div class="segmented" data-control="type">
+            <button class="is-active" data-value="industry">行业板块</button>
+            <button data-value="concept">概念板块</button>
+          </div>
+        </div>
+        <div class="control-group">
+          <span>显示模式</span>
+          <div class="segmented" data-control="mode">
+            <button class="is-active" data-value="change">涨跌热力</button>
+            <button data-value="fund">资金热力</button>
+            <button data-value="hot">综合热度</button>
+          </div>
+        </div>
+        <div class="control-group">
+          <span>面积口径</span>
+          <div class="segmented" data-control="area">
+            <button class="is-active" data-value="amount">成交额</button>
+            <button data-value="mainNetInAbs">资金规模</button>
+            <button data-value="marketCap">总市值</button>
+          </div>
+        </div>
+        <div class="control-group search-box">
+          <span>快速过滤</span>
+          <input id="searchInput" type="search" placeholder="搜索板块、领涨股、ETF" />
+        </div>
+      </section>
+
+      <main class="workspace">
+        <aside class="sidebar panel">
+          <div class="panel-head">
+            <div><span class="eyebrow">Leaderboard</span><h2>实时榜单</h2></div>
+          </div>
+          <div id="rankLists" class="rank-lists"></div>
+        </aside>
+        <section class="heatmap-panel panel">
+          <div class="panel-head heatmap-head">
+            <div><span class="eyebrow">Live Heatmap</span><h2 id="heatmapTitle">行业板块 · 涨跌热力</h2></div>
+            <div class="legend" id="legend"></div>
+          </div>
+          <div id="heatmap" class="heatmap" aria-label="板块实时热力图"></div>
+        </section>
+        <aside class="detail-panel panel" id="detailPanel">
+          <div class="empty-detail"><span>选择一个板块</span><p>查看资金结构、领涨股、内部扩散度、成份股和相关 ETF。</p></div>
+        </aside>
+      </main>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+    <script src="./src/config.js"></script>
+    <script type="module" src="./src/data-mode-status.js"></script>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
