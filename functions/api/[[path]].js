@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_ORIGIN = 'http://34.150.36.161:8000';
+const DEFAULT_BACKEND_ORIGIN = 'https://jijin.that-is-ai.com';
 
 function normalizeOrigin(value) {
   return String(value || '').trim().replace(/\/$/, '');
