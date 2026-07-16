@@ -104,6 +104,11 @@ async function fetchJson(endpoint) {
       const error = new Error(`接口请求失败：${response.status} ${response.statusText}`.trim());
       error.status = response.status;
       error.detail = await readErrorDetail(response);
+      if (error.detail?.error === 'REAL_DATA_UNAVAILABLE') {
+        error.message = error.detail.message || '完整真实数据不可用';
+        error.status = 'REAL_DATA_REQUIRED';
+        error.detail = null;
+      }
       throw error;
     }
 
