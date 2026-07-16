@@ -260,7 +260,7 @@ JIJIN_API_BASE=https://your-api.example.com bash scripts/smoke-test.sh
 
 ## 前端接入
 
-前端默认使用 Mock 数据。
+前端不包含 Mock 行情；必须连接真实后端，否则直接显示数据错误。
 
 如果要切换到真实后端，可以在浏览器控制台执行：
 
@@ -269,7 +269,7 @@ localStorage.setItem('JIJIN_API_BASE', 'http://localhost:8000');
 location.reload();
 ```
 
-恢复 Mock：
+断开接口（页面会直接报错）：
 
 ```js
 localStorage.removeItem('JIJIN_API_BASE');
@@ -312,7 +312,7 @@ window.JIJIN_CONFIG = {
 
 ## 限制
 
-- 免费公开接口字段和稳定性可能变化，需要保留 Mock / 缓存兜底。
+- 免费公开接口字段和稳定性可能变化；仅允许最近一次真实缓存快照，不允许 Mock、测试或推导行情兜底。
 - 当前后端没有鉴权，公开部署时建议只开放 GET，并限制 CORS 来源。
 - AKShare 依赖第三方公开数据，偶发失败属于正常风险。
 - 本项目仅做信息展示和研究，不构成投资建议。

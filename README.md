@@ -19,14 +19,14 @@
 - ETF 溢折价风险提示：高溢折价会显示「溢价谨慎」并扣分
 - 热力图 Tooltip
 - 手动刷新和 15 秒自动刷新
-- 模拟实时行情脉冲，刷新时板块涨跌、成交额、资金流、上涨家数会动态变化
+- 基于真实接口源时间记录行情脉冲，相同快照不重复写入
 - 点击板块查看详情标签页：板块概览、成份股、相关 ETF、资金结构
 - 新增 FastAPI 后端适配器，可通过 AKShare 获取真实行业 / 概念板块行情、资金流、成份股和 ETF 行情
-- 前端支持 Mock / 真实接口一键切换
+- 前端执行 real-only 策略：部分、推导、测试或模拟响应会被拒绝并直接报错
 - Docker Compose 一键启动、冒烟测试、基础 CI
 - 纯静态页面可部署到 GitHub Pages / Cloudflare Pages，后端可单独部署
 
-## 运行方式一：只跑前端 Mock
+## 运行方式一：只启动前端静态页
 
 因为当前页面使用了 ES Module，建议使用本地静态服务预览。
 
@@ -34,7 +34,7 @@
 python3 -m http.server 5173
 ```
 
-然后访问：
+然后访问。未配置真实 API 时页面会直接显示数据错误，不会生成替代行情：
 
 ```text
 http://localhost:5173
@@ -97,7 +97,7 @@ localStorage.setItem('JIJIN_API_BASE', 'http://localhost:8000');
 location.reload();
 ```
 
-恢复 Mock：
+断开接口（页面会直接报错）：
 
 ```js
 localStorage.removeItem('JIJIN_API_BASE');
@@ -185,7 +185,7 @@ Tushare Pro：后期稳定归档层，有积分和权限门槛
 
 ## 热力图数据模型
 
-前端通过 `src/services/sector-api.js` 读取数据。默认读取 `src/data/mock-sectors.js` 并模拟准实时刷新；设置 `JIJIN_API_BASE` 后会读取后端真实接口。
+前端通过 `src/services/sector-api.js` 读取真实接口数据。没有配置 `JIJIN_API_BASE`、接口字段缺失、响应为 partial/derived，或来源标记为测试/模拟时，页面会直接报错并停止展示对应数据。
 
 ```js
 {
@@ -274,7 +274,7 @@ jijin-show/
 │   ├── requirements.txt
 │   └── README.md
 ├── src/                     # 当前静态页面代码，后续也可迁移为 web/src
-│   ├── data/                # Mock 数据、ETF 映射规则
+│   ├── data/                # ETF 静态映射规则（不包含行情数据）
 │   ├── services/            # 前端数据适配层
 │   ├── main.js              # 热力图交互逻辑
 │   ├── styles.css           # 页面基础样式

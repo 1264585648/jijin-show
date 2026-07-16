@@ -183,7 +183,6 @@ def health() -> dict[str, Any]:
             "allowStaleCache": ALLOW_STALE_CACHE,
             "etfQuoteProvider": selected_etf_quote_provider(),
             "alphaVantageConfigured": bool(ALPHA_VANTAGE_API_KEY),
-            "mockEnabled": False,
         },
         "cache": {
             "size": len(base.CACHE),

@@ -20,6 +20,15 @@ function getCorsHeaders(request) {
   };
 }
 
+function getRejectedPayloadReason(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  const marker = `${payload.source || ''} ${payload.delivery || ''}`.toLowerCase();
+  if (/\b(mock|demo|test|simulated|synthetic)\b/.test(marker)) return '上游返回了测试或模拟数据';
+  if (payload.partial === true) return '上游仅返回部分数据';
+  if (String(payload.delivery || '').toLowerCase().includes('derived')) return '上游返回了推导数据';
+  return '';
+}
+
 export async function onRequest(context) {
   const { request, env = {} } = context;
   const corsHeaders = getCorsHeaders(request);
@@ -58,6 +67,28 @@ export async function onRequest(context) {
     const headers = new Headers(response.headers);
     Object.entries(corsHeaders).forEach(([key, value]) => headers.set(key, value));
     headers.set('Cache-Control', 'no-store');
+    headers.set('X-Jijin-Data-Policy', 'real-only');
+
+    if (response.ok && request.method !== 'HEAD') {
+      const payload = await response.clone().json().catch(() => null);
+      const rejectedReason = getRejectedPayloadReason(payload);
+      if (rejectedReason) {
+        const rejectedHeaders = new Headers(headers);
+        rejectedHeaders.delete('Content-Encoding');
+        rejectedHeaders.delete('Content-Length');
+        rejectedHeaders.delete('ETag');
+        rejectedHeaders.set('Content-Type', 'application/json; charset=utf-8');
+        return Response.json(
+          {
+            ok: false,
+            error: 'REAL_DATA_UNAVAILABLE',
+            message: `${rejectedReason}，已按真实数据策略拒绝展示`,
+            endpoint: incomingUrl.pathname,
+          },
+          { status: 503, headers: rejectedHeaders },
+        );
+      }
+    }
 
     return new Response(response.body, {
       status: response.status,

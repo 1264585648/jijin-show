@@ -211,7 +211,7 @@ function renderSheet(item) {
     <div class="sheet-metrics">
       <div><span>主力净流入</span><strong class="${valueClass(item.mainNetIn)}">${formatMoney(item.mainNetIn)}</strong></div>
       <div><span>主力净占比</span><strong class="${valueClass(item.mainNetInRatio)}">${formatPercent(item.mainNetInRatio)}</strong></div>
-      <div><span>成交额</span><strong>${item.amount > 0 ? `${item.amount.toFixed(1)}亿` : '待更新'}</strong></div>
+      <div><span>成交额</span><strong>${item.amount > 0 ? `${item.amount.toFixed(1)}亿` : '数据错误'}</strong></div>
       <div><span>内部扩散</span><strong>${item.riseRatio.toFixed(0)}%</strong></div>
       <div><span>上涨 / 下跌</span><strong>${item.upCount} / ${item.downCount}</strong></div>
       <div><span>换手率</span><strong>${formatPercent(item.turnoverRate)}</strong></div>
@@ -266,9 +266,12 @@ async function loadData() {
     const data = Array.isArray(result) ? result.map(enrichSector).filter((item) => item.id && item.name) : [];
     if (data.length) {
       state.data = data;
-      state.lastError = null;
-      els.updatedAt.textContent = `数据 ${formatDateTime(state.sourceUpdatedAt || Date.now())}`;
-      if (state.stale) {
+      els.updatedAt.textContent = state.sourceUpdatedAt ? `数据 ${formatDateTime(state.sourceUpdatedAt)}` : '数据时间错误';
+      if (state.lastError) {
+        els.dataNotice.classList.remove('is-hidden');
+        els.noticeText.textContent = `数据错误：${state.lastError.message || '真实行情字段不完整'}`;
+        setDataState('数据错误', 'error');
+      } else if (state.stale) {
         els.dataNotice.classList.remove('is-hidden');
         els.noticeText.textContent = '上游行情暂不可用，当前显示最近一次成功快照。';
         setDataState('缓存数据', 'error');
@@ -332,6 +335,7 @@ window.addEventListener('jijin:api-error', (event) => {
   state.lastError = event.detail || new Error('接口不可用');
 });
 window.addEventListener('jijin:api-success', (event) => {
+  if (String(event.detail?.endpoint || '').startsWith('/api/sector/heatmap')) state.lastError = null;
   const payload = event.detail?.payload;
   const timestamp = finite(payload?.snapshotCollectedAt || payload?.updatedAt);
   if (timestamp) {

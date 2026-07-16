@@ -323,11 +323,11 @@ function setValueClass(element, value, extraClass = '') {
 
 function renderKpis(data, totals) {
   const hasAmount = totals.amount > 0;
-  els.totalAmount.textContent = hasAmount ? formatAmount(totals.amount) : '待更新';
+  els.totalAmount.textContent = hasAmount ? formatAmount(totals.amount) : '数据错误';
   els.totalAmount.className = 'kpi-value';
   els.amountNote.textContent = hasAmount
     ? `板块口径参考 · 覆盖 ${data.length} 个节点`
-    : '当前快照暂未提供有效成交额';
+    : '成交额字段缺失，未使用替代值';
   els.amountNote.classList.toggle('is-empty-note', !hasAmount);
 
   els.totalFund.textContent = formatMoney(totals.fund);
@@ -441,20 +441,20 @@ function renderSignals(data) {
 }
 
 function renderEtfActions(data) {
-  const watchlist = buildEtfWatchlist(data, state.etfQuotes, { limit: 3 });
+  const watchlist = buildEtfWatchlist(data, state.etfQuotes, { limit: 12 })
+    .filter((item) => item.quote)
+    .slice(0, 3);
   if (!watchlist.length) {
-    els.etfActionList.innerHTML = '<div class="signal-empty">当前板块尚未匹配到 ETF，前往 ETF 观察池查看完整列表</div>';
+    els.etfActionList.innerHTML = '<div class="signal-empty" role="alert">数据错误：没有可展示的完整真实 ETF 行情</div>';
     return;
   }
 
   els.etfActionList.innerHTML = watchlist
     .map((item) => {
       const quote = item.quote;
-      const quoteText = quote
-        ? `${formatPercent(quote.changePct)} · 成交 ${formatMoney(quote.amount).replace('+', '')}`
-        : '行情待确认';
-      const signal = quote ? item.signal : '映射观察';
-      const tone = quote ? valueClass(quote.changePct) : '';
+      const quoteText = `${formatPercent(quote.changePct)} · 成交 ${formatMoney(quote.amount).replace('+', '')}`;
+      const signal = item.signal;
+      const tone = valueClass(quote.changePct);
       return `
         <a class="etf-action-item" href="./etf.html">
           <span class="etf-action-code">${escapeHtml(item.code || 'ETF')}</span>
@@ -622,7 +622,7 @@ function renderChart() {
 }
 
 function renderDataNotice() {
-  if (state.noticeDismissed || (!state.lastError && state.data.length)) {
+  if (state.noticeDismissed || (!state.lastError && !state.etfError && state.data.length)) {
     els.dataNotice.classList.add('is-hidden');
     return;
   }
@@ -630,10 +630,14 @@ function renderDataNotice() {
   els.dataNotice.classList.remove('is-hidden');
   if (state.lastError) {
     const noBase = state.lastError.status === 'NO_API_BASE' || !getApiBase();
-    els.dataNoticeTitle.textContent = noBase ? '尚未连接真实数据接口' : '真实数据接口暂不可用';
+    const qualityError = state.lastError.status === 'REAL_DATA_REQUIRED';
+    els.dataNoticeTitle.textContent = noBase ? '尚未连接真实数据接口' : qualityError ? '真实数据字段不完整' : '真实数据接口暂不可用';
     els.dataNoticeText.textContent = noBase
       ? '请在本地配置 JIJIN_API_BASE；页面不会使用模拟数据兜底。'
       : `${state.lastError.endpoint || '行情接口'} · ${state.lastError.message || '请求失败'}`;
+  } else if (state.etfError) {
+    els.dataNoticeTitle.textContent = 'ETF 真实数据不完整';
+    els.dataNoticeText.textContent = `${state.etfError.endpoint || 'ETF 行情接口'} · ${state.etfError.message || '缺失标的已停止展示'}`;
   } else {
     els.dataNoticeTitle.textContent = '真实接口暂未返回板块数据';
     els.dataNoticeText.textContent = '当前页面保持空态，不会使用模拟行情替代。';
@@ -686,7 +690,6 @@ async function loadData({ silent = false } = {}) {
     const data = Array.isArray(result) ? result.map(enrichSector).filter((item) => item.name) : [];
     if (data.length) {
       state.data = data;
-      state.lastError = null;
       state.etfError = null;
       const totals = getTotals(data);
       recordHistorySample(totals);
@@ -695,6 +698,7 @@ async function loadData({ silent = false } = {}) {
       const etfQuotes = await fetchEtfQuotes(etfLabels);
       state.etfQuotes = buildEtfQuoteMap(etfQuotes);
       renderEtfActions(data);
+      renderDataNotice();
       if (!silent) showToast('市场数据已更新');
     } else if (state.data.length) {
       renderDataNotice();

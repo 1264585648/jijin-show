@@ -50,7 +50,7 @@ function renderApiBanner() {
   banner.classList.remove('is-hidden');
   banner.innerHTML = `
     <div>
-      <strong>数据接口不可用</strong>
+      <strong>${latest.status === 'REAL_DATA_REQUIRED' ? '真实数据不完整' : '数据接口不可用'}</strong>
       <p>${escapeHtml(latest.endpoint)} · ${escapeHtml(latest.message)}</p>
       ${latest.detail ? `<p class="api-error-detail">${escapeHtml(formatErrorDetail(latest.detail))}</p>` : ''}
     </div>

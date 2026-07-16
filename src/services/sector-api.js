@@ -36,6 +36,26 @@ function normalizeSectorMoneyFields(node) {
   };
 }
 
+function isRejectedPayload(payload) {
+  if (!payload || typeof payload !== 'object') return '接口未返回有效对象';
+  if (!String(payload.source || '').trim()) return '接口缺少真实数据来源标识';
+  const marker = `${payload.source || ''} ${payload.delivery || ''}`.toLowerCase();
+  if (/\b(mock|demo|test|simulated|synthetic)\b/.test(marker)) return '接口返回了测试或模拟数据';
+  if (payload.partial === true) return '接口仅返回部分数据';
+  if (String(payload.delivery || '').toLowerCase().includes('derived')) return '接口返回了推导数据';
+  return '';
+}
+
+function rejectPayload(endpoint, reason, detail = null, message = `${reason}，已停止展示`) {
+  dispatchApiStatus('error', {
+    endpoint,
+    message,
+    status: 'REAL_DATA_REQUIRED',
+    detail,
+    updatedAt: Date.now(),
+  });
+}
+
 function dispatchApiStatus(type, detail) {
   try {
     window.dispatchEvent(new CustomEvent(`jijin:api-${type}`, { detail }));
@@ -97,24 +117,97 @@ async function fetchJson(endpoint) {
 }
 
 export async function fetchSectorHeatmap({ type = 'industry' } = {}) {
-  const payload = await fetchJson(`/api/sector/heatmap?type=${encodeURIComponent(type)}&period=today`);
-  return (payload?.nodes || []).map(normalizeSectorMoneyFields);
+  const endpoint = `/api/sector/heatmap?type=${encodeURIComponent(type)}&period=today`;
+  const payload = await fetchJson(endpoint);
+  if (!payload) return [];
+  const rejectedReason = isRejectedPayload(payload);
+  if (rejectedReason) {
+    rejectPayload(endpoint, rejectedReason);
+    return [];
+  }
+  const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+  const requiredNumericFields = [
+    'changePct',
+    'amount',
+    'marketCap',
+    'mainNetIn',
+    'mainNetInRatio',
+    'superLargeNetIn',
+    'bigNetIn',
+    'upCount',
+    'downCount',
+    'turnoverRate',
+  ];
+  const invalidNode = nodes.find((node) => (
+    !node?.id
+    || !node?.name
+    || requiredNumericFields.some((field) => node[field] === null || node[field] === undefined || !Number.isFinite(Number(node[field])))
+  ));
+  if (!nodes.length || invalidNode) {
+    rejectPayload(endpoint, nodes.length ? '板块数据缺少必需字段' : '接口未返回板块数据');
+    return [];
+  }
+  if (nodes.every((node) => Number(node.amount) === 0)) {
+    rejectPayload(endpoint, '成交额字段没有有效数据', null, '成交额字段没有有效数据，已将该字段标记为数据错误');
+  }
+  return nodes.map(normalizeSectorMoneyFields);
 }
 
 export async function fetchSectorStocks(sector) {
   const sectorId = encodeURIComponent(sector.id);
   const sectorType = encodeURIComponent(sector.type || 'industry');
-  const payload = await fetchJson(`/api/sector/${sectorId}/stocks?type=${sectorType}`);
-  return payload?.stocks || [];
+  const endpoint = `/api/sector/${sectorId}/stocks?type=${sectorType}`;
+  const payload = await fetchJson(endpoint);
+  if (!payload) return { ok: false, stocks: [], error: '完整真实成份股数据不可用' };
+  const rejectedReason = isRejectedPayload(payload);
+  if (rejectedReason) {
+    rejectPayload(endpoint, rejectedReason);
+    return { ok: false, stocks: [], error: `${rejectedReason}，未展示任何成份股` };
+  }
+  const stocks = Array.isArray(payload.stocks) ? payload.stocks : [];
+  const requiredNumericFields = ['price', 'changePct', 'amount', 'turnoverRate', 'fundNetIn'];
+  const invalidStock = stocks.find((stock) => (
+    !stock?.code
+    || !stock?.name
+    || requiredNumericFields.some((field) => stock[field] === null || stock[field] === undefined || !Number.isFinite(Number(stock[field])))
+  ));
+  if (!stocks.length || invalidStock) {
+    const reason = stocks.length ? '成份股数据缺少必需字段' : '接口未返回成份股数据';
+    rejectPayload(endpoint, reason);
+    return { ok: false, stocks: [], error: `${reason}，未展示任何成份股` };
+  }
+  return { ok: true, stocks, error: '' };
 }
 
 export async function fetchEtfQuotes(labels = []) {
   const uniqueLabels = [...new Set(labels.filter(Boolean))];
-  const codes = uniqueLabels.map(parseEtfCode).filter(Boolean);
+  const codes = [...new Set(uniqueLabels.map(parseEtfCode).filter(Boolean))];
   if (!codes.length) return [];
 
-  const payload = await fetchJson(`/api/etf/quotes?codes=${codes.join(',')}`);
-  return payload?.quotes || [];
+  const endpoint = `/api/etf/quotes?codes=${codes.join(',')}`;
+  const payload = await fetchJson(endpoint);
+  if (!payload) return [];
+  const rejectedReason = isRejectedPayload(payload);
+  if (rejectedReason) {
+    rejectPayload(endpoint, rejectedReason);
+    return [];
+  }
+  const quotes = Array.isArray(payload.quotes) ? payload.quotes : [];
+  const requiredNumericFields = ['price', 'changePct', 'amount', 'premiumRate'];
+  const validQuotes = quotes.filter((quote) => (
+    quote?.code
+    && quote?.name
+    && requiredNumericFields.every((field) => quote[field] !== null && quote[field] !== undefined && Number.isFinite(Number(quote[field])))
+  ));
+  if (validQuotes.length !== quotes.length) {
+    rejectPayload(endpoint, `ETF 行情有 ${quotes.length - validQuotes.length} 条缺少必需字段`);
+  }
+  const returnedCodes = new Set(validQuotes.map((quote) => String(quote.code)));
+  const missingCodes = codes.filter((code) => !returnedCodes.has(code));
+  if (missingCodes.length) {
+    rejectPayload(endpoint, `ETF 真实行情缺失 ${missingCodes.length} 只`, `缺失代码：${missingCodes.join(', ')}`);
+  }
+  return validQuotes;
 }
 
 export function getDataModeLabel() {

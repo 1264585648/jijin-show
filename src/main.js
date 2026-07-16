@@ -247,9 +247,9 @@ function renderSummary(data) {
     { label: '覆盖板块', value: data.length, suffix: '个', note: `${TYPE_LABELS[state.type]} · ${MODE_LABELS[state.mode]}` },
     {
       label: '样本成交额',
-      value: hasAmount ? totalAmount.toFixed(0) : '待更新',
+      value: hasAmount ? totalAmount.toFixed(0) : '数据错误',
       suffix: hasAmount ? '亿' : '',
-      note: hasAmount ? `面积口径：${AREA_LABELS[state.area]}` : '当前快照未提供有效成交额',
+      note: hasAmount ? `面积口径：${AREA_LABELS[state.area]}` : '成交额字段缺失，未使用替代值',
     },
     {
       label: '主力净流入',
@@ -326,7 +326,7 @@ function renderHeatmap(data) {
           <div class="tile-meta">
             <span>主力 ${formatMoney(item.mainNetIn)}</span>
             <span>${item.upCount}涨 / ${item.downCount}跌 · 扩散 ${item.riseRatio.toFixed(0)}%</span>
-            <span>领涨 ${escapeHtml(item.leadingStock || '待更新')} ${formatPercent(item.leadingStockChangePct)}</span>
+            <span>领涨 ${escapeHtml(item.leadingStock || '数据错误')} ${item.leadingStock ? formatPercent(item.leadingStockChangePct) : ''}</span>
           </div>
         </button>
       `;
@@ -398,7 +398,7 @@ function getEtfFilterSummary(watchlist) {
 }
 
 function renderEtfWatchlist(data) {
-  const watchlist = buildEtfWatchlist(data, state.etfQuotes, state.etfFilters);
+  const watchlist = buildEtfWatchlist(data, state.etfQuotes, state.etfFilters).filter((item) => item.quote);
 
   return `
     <section class="rank-block etf-watch-block">
@@ -409,8 +409,8 @@ function renderEtfWatchlist(data) {
           .map((item, index) => {
             const quote = item.quote;
             const quoteInfo = item.quoteInfo;
-            const quoteText = quote ? `${formatPercent(quote.changePct)} · ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}` : '等待 ETF 行情';
-            const riskTags = quoteInfo?.riskTags?.length ? quoteInfo.riskTags.slice(0, 3) : ['等待行情'];
+            const quoteText = `${formatPercent(quote.changePct)} · ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}`;
+            const riskTags = quoteInfo?.riskTags?.length ? quoteInfo.riskTags.slice(0, 3) : [];
             return `
               <div class="etf-watch-item ${quoteInfo?.tradable === false ? 'is-muted' : ''}">
                 <span class="rank-no">${index + 1}</span>
@@ -425,7 +425,7 @@ function renderEtfWatchlist(data) {
             `;
           })
           .join('')
-        : '<div class="etf-filter-empty">当前筛选条件下暂无 ETF，可降低成交额阈值或关闭筛选。</div>'}
+        : '<div class="etf-filter-empty" role="alert">数据错误：当前没有可展示的完整真实 ETF 行情。</div>'}
     </section>
   `;
 }
@@ -473,7 +473,7 @@ function renderDetail(item) {
     return;
   }
 
-  const stocks = stocksCache.get(item.id);
+  const stockResult = stocksCache.get(item.id);
   const isStocksLoading = stocksLoadingIds.has(item.id);
 
   els.detailPanel.innerHTML = `
@@ -490,13 +490,13 @@ function renderDetail(item) {
         .join('')}
     </div>
     <div class="detail-tab-content">
-      ${renderDetailTab(item, stocks, isStocksLoading)}
+      ${renderDetailTab(item, stockResult, isStocksLoading)}
     </div>
   `;
 }
 
-function renderDetailTab(item, stocks, isStocksLoading) {
-  if (state.activeTab === 'stocks') return renderStocksTab(item, stocks, isStocksLoading);
+function renderDetailTab(item, stockResult, isStocksLoading) {
+  if (state.activeTab === 'stocks') return renderStocksTab(item, stockResult, isStocksLoading);
   if (state.activeTab === 'etf') return renderEtfTab(item);
   if (state.activeTab === 'flow') return renderFlowTab(item);
   return renderOverviewTab(item);
@@ -508,7 +508,7 @@ function renderOverviewTab(item) {
     <div class="metric-list">
       <div class="metric"><span>主力净流入</span><strong class="${classByValue(item.mainNetIn)}">${formatMoney(item.mainNetIn)}</strong></div>
       <div class="metric"><span>主力净占比</span><strong class="${classByValue(item.mainNetInRatio)}">${formatPercent(item.mainNetInRatio)}</strong></div>
-      <div class="metric"><span>成交额</span><strong>${hasAmount ? `${item.amount.toFixed(0)} 亿` : '待更新'}</strong></div>
+      <div class="metric"><span>成交额</span><strong>${hasAmount ? `${item.amount.toFixed(0)} 亿` : '数据错误'}</strong></div>
       <div class="metric"><span>换手率</span><strong>${formatPercent(item.turnoverRate)}</strong></div>
       <div class="metric"><span>上涨家数</span><strong>${item.upCount} 家</strong></div>
       <div class="metric"><span>下跌家数</span><strong>${item.downCount} 家</strong></div>
@@ -521,36 +521,36 @@ function renderOverviewTab(item) {
     <section class="detail-section">
       <h3>领涨与资金核心</h3>
       <div class="metric-list compact-metrics">
-        <div class="metric"><span>领涨股</span><strong>${escapeHtml(item.leadingStock || '待更新')} ${formatPercent(item.leadingStockChangePct)}</strong></div>
-        <div class="metric"><span>主力净流入最大股</span><strong>${escapeHtml(item.topFundFlowStock || '待更新')}</strong></div>
+        <div class="metric"><span>领涨股</span><strong>${item.leadingStock ? `${escapeHtml(item.leadingStock)} ${formatPercent(item.leadingStockChangePct)}` : '数据错误'}</strong></div>
+        <div class="metric"><span>主力净流入最大股</span><strong>${escapeHtml(item.topFundFlowStock || '数据错误')}</strong></div>
       </div>
     </section>
   `;
 }
 
-function renderStocksTab(item, stocks, isStocksLoading) {
-  if (isStocksLoading && !stocks) return `<div class="loading-box">正在加载 ${escapeHtml(item.name)} 成份股...</div>`;
-  if (!stocks?.length) return `<div class="loading-box">暂无成份股数据</div>`;
+function renderStocksTab(item, stockResult, isStocksLoading) {
+  if (isStocksLoading && !stockResult) return `<div class="loading-box">正在加载 ${escapeHtml(item.name)} 成份股...</div>`;
+  if (!stockResult?.ok) {
+    return `<div class="loading-box" role="alert"><strong>数据错误</strong><br />${escapeHtml(stockResult?.error || '完整真实成份股数据不可用，已停止展示')}</div>`;
+  }
+  const stocks = stockResult.stocks;
 
   return `
     <section class="detail-section full-section">
-      <div class="table-headline"><h3>成份股强弱</h3><span>板块快照推导 · 缺失字段显示待更新</span></div>
+      <div class="table-headline"><h3>成份股强弱</h3><span>仅展示完整真实接口数据</span></div>
       <div class="stock-table">
         <div class="stock-row stock-row-head"><span>代码</span><span>名称</span><span>涨跌幅</span><span>主力</span><span>角色</span></div>
         ${stocks
           .map(
-            (stock) => {
-              const isPartial = !stock.code && Number(stock.amount || 0) === 0 && Number(stock.fundNetIn || 0) === 0;
-              return `
+            (stock) => `
             <div class="stock-row">
-              <span>${escapeHtml(stock.code || '--')}</span>
-              <strong>${escapeHtml(stock.name || '待更新')}</strong>
+              <span>${escapeHtml(stock.code)}</span>
+              <strong>${escapeHtml(stock.name)}</strong>
               <span class="${classByValue(stock.changePct)}">${formatPercent(stock.changePct)}</span>
-              <span class="${isPartial ? 'neutral' : classByValue(stock.fundNetIn)}">${isPartial ? '待更新' : formatMoney(stock.fundNetIn)}</span>
+              <span class="${classByValue(stock.fundNetIn)}">${formatMoney(stock.fundNetIn)}</span>
               <span>${escapeHtml(stock.role || '成份股')}</span>
             </div>
-          `;
-            },
+          `,
           )
           .join('')}
       </div>
@@ -571,14 +571,24 @@ function renderEtfTab(item) {
             const label = normalizeEtfLabel(etf);
             const watch = buildEtfWatchlist([{ ...item, relatedEtfs: [label] }], state.etfQuotes, { ...ETF_WATCHLIST_DEFAULT_FILTERS, limit: 1 })[0];
             const quote = watch?.quote;
-            const score = watch?.score ?? clamp(item.hotScore - index * 7 + item.mainNetInRatio * 1.5 + (quote?.changePct || 0) * 1.5, 0, 100);
-            const signal = watch?.signal || (score >= 75 ? '高热度' : score >= 58 ? '可观察' : '低优先级');
-            const riskTags = watch?.quoteInfo?.riskTags?.length ? watch.quoteInfo.riskTags.slice(0, 3) : ['等待行情'];
+            if (!quote) {
+              return `
+                <article class="etf-card">
+                  <div>
+                    <strong>${escapeHtml(label)}</strong>
+                    <span role="alert">数据错误：真实 ETF 行情缺失，未计算观察分</span>
+                  </div>
+                </article>
+              `;
+            }
+            const score = watch.score;
+            const signal = watch.signal;
+            const riskTags = watch.quoteInfo?.riskTags?.slice(0, 3) || [];
             return `
               <article class="etf-card">
                 <div>
                   <strong>${escapeHtml(quote?.code || label.match(/\d{6}/)?.[0] || '')} ${escapeHtml(quote?.name || label.replace(/^\d{6}\s*/, ''))}</strong>
-                  <span>${escapeHtml(signal)} · ${quote ? `${formatPercent(quote.changePct)} · 成交 ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}` : '等待 ETF 行情'}</span>
+                  <span>${escapeHtml(signal)} · ${formatPercent(quote.changePct)} · 成交 ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}</span>
                   <div class="etf-risk-tags">${riskTags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
                 </div>
                 <div class="etf-score ${score >= 70 ? 'positive' : 'neutral'}">${score.toFixed(0)}</div>
@@ -587,7 +597,7 @@ function renderEtfTab(item) {
           })
           .join('')}
       </div>
-      <p class="summary-note">ETF 行情不可用时会明确显示“待更新”，不会使用模拟数据替代。</p>
+      <p class="summary-note">仅使用真实 ETF 行情；缺失时直接报错且不计算观察分。</p>
     </section>
   `;
 }
@@ -624,11 +634,11 @@ function renderTooltip(item, event) {
   els.tooltip.innerHTML = `
     <h4>${escapeHtml(item.name)} <span class="${classByValue(item.changePct)}">${formatPercent(item.changePct)}</span></h4>
     <div class="tooltip-grid">
-      <div><span>成交额</span><strong>${item.amount > 0 ? `${item.amount.toFixed(0)} 亿` : '待更新'}</strong></div>
+      <div><span>成交额</span><strong>${item.amount > 0 ? `${item.amount.toFixed(0)} 亿` : '数据错误'}</strong></div>
       <div><span>主力净流入</span><strong class="${classByValue(item.mainNetIn)}">${formatMoney(item.mainNetIn)}</strong></div>
       <div><span>主力净占比</span><strong class="${classByValue(item.mainNetInRatio)}">${formatPercent(item.mainNetInRatio)}</strong></div>
       <div><span>上涨/下跌</span><strong>${item.upCount} / ${item.downCount}</strong></div>
-      <div><span>领涨股</span><strong>${escapeHtml(item.leadingStock || '待更新')}</strong></div>
+      <div><span>领涨股</span><strong>${escapeHtml(item.leadingStock || '数据错误')}</strong></div>
     </div>
   `;
   els.tooltip.style.left = `${event.clientX + 16}px`;
@@ -646,8 +656,8 @@ async function ensureStocksForSelected() {
 
   stocksLoadingIds.add(item.id);
   renderDetail(item);
-  const stocks = await fetchSectorStocks(item);
-  stocksCache.set(item.id, stocks);
+  const stockResult = await fetchSectorStocks(item);
+  stocksCache.set(item.id, stockResult);
   stocksLoadingIds.delete(item.id);
 
   const current = getCurrentData().find((sector) => sector.id === state.selectedId);

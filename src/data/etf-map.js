@@ -128,12 +128,12 @@ export function classifyEtfQuote(quote) {
   if (!quote) {
     return {
       liquidityLevel: 'unknown',
-      liquidityLabel: '等待行情',
+      liquidityLabel: '数据错误',
       premiumRisk: 'unknown',
-      premiumLabel: '溢折待确认',
-      riskTags: ['等待行情'],
-      scorePenalty: 0,
-      tradable: true,
+      premiumLabel: '数据错误',
+      riskTags: ['真实行情缺失'],
+      scorePenalty: 100,
+      tradable: false,
     };
   }
 

@@ -120,7 +120,7 @@ function getFilteredItems() {
 }
 
 function quoteSummary(item) {
-  if (!item.quote) return 'ETF行情待更新';
+  if (!item.quote) return '数据错误：真实 ETF 行情缺失';
   return `成交 ${finite(item.quote.amount).toFixed(1)}亿 · 溢折 ${formatPercent(item.quote.premiumRate)}`;
 }
 
@@ -173,7 +173,7 @@ function renderList(items) {
 
   els.etfList.innerHTML = items.map((item) => {
     const change = item.quote?.changePct;
-    const risks = item.quoteInfo?.riskTags?.slice(0, 2) || ['行情待更新'];
+    const risks = item.quoteInfo?.riskTags?.slice(0, 2) || ['数据错误'];
     return `
       <button class="etf-row" type="button" data-etf-code="${escapeHtml(item.code)}">
         <span class="etf-primary">
@@ -198,7 +198,7 @@ function render() {
 
 function renderSheet(item) {
   const change = item.quote?.changePct;
-  const risks = item.quoteInfo?.riskTags || ['ETF行情待更新'];
+  const risks = item.quoteInfo?.riskTags || ['数据错误'];
   els.sheetContent.innerHTML = `
     <div class="sheet-title-row">
       <div>
@@ -210,8 +210,8 @@ function renderSheet(item) {
     </div>
     <div class="sheet-metrics">
       <div><span>观察分</span><strong>${item.score.toFixed(0)} / 100</strong></div>
-      <div><span>成交额</span><strong>${item.quote ? `${finite(item.quote.amount).toFixed(1)}亿` : '待更新'}</strong></div>
-      <div><span>溢折价</span><strong class="${valueClass(-Math.abs(finite(item.quote?.premiumRate)))}">${item.quote ? formatPercent(item.quote.premiumRate) : '待更新'}</strong></div>
+      <div><span>成交额</span><strong>${item.quote ? `${finite(item.quote.amount).toFixed(1)}亿` : '数据错误'}</strong></div>
+      <div><span>溢折价</span><strong class="${valueClass(-Math.abs(finite(item.quote?.premiumRate)))}">${item.quote ? formatPercent(item.quote.premiumRate) : '数据错误'}</strong></div>
       <div><span>板块资金</span><strong class="${valueClass(item.fund)}">${formatMoney(item.fund)}</strong></div>
       <div><span>关联主线</span><strong>${escapeHtml(item.sectors.join('、') || '待确认')}</strong></div>
       <div><span>流动性</span><strong>${escapeHtml(item.quoteInfo?.liquidityLabel || '待确认')}</strong></div>
@@ -277,13 +277,19 @@ async function loadData() {
     const labels = collectEtfLabelsFromSectors(sectors);
     const quotes = await fetchEtfQuotes(labels);
     const quoteMap = buildEtfQuoteMap(quotes);
-    state.items = buildEtfWatchlist(sectors, quoteMap, { limit: 100 });
-    els.updatedAt.textContent = `数据 ${formatDateTime(state.sourceUpdatedAt || Date.now())}`;
+    state.items = buildEtfWatchlist(sectors, quoteMap, { limit: 100 }).filter((item) => item.quote);
+    els.updatedAt.textContent = state.sourceUpdatedAt ? `数据 ${formatDateTime(state.sourceUpdatedAt)}` : '数据时间错误';
 
-    if (!quotes.length) {
+    const expectedCodes = new Set(labels.map((label) => String(label).match(/\b\d{6}\b/)?.[0]).filter(Boolean));
+    const returnedCodes = new Set(quotes.map((quote) => String(quote?.code || '')));
+    const missingCount = [...expectedCodes].filter((code) => !returnedCodes.has(code)).length;
+
+    if (!quotes.length || missingCount) {
       els.dataNotice.classList.remove('is-hidden');
-      els.noticeText.textContent = '板块数据可用，但ETF实时行情暂未返回，成交额与溢折价显示为待更新。';
-      setDataState('部分数据', 'error');
+      els.noticeText.textContent = !quotes.length
+        ? '数据错误：ETF 真实行情未返回，已停止展示 ETF 列表。'
+        : `数据错误：缺失 ${missingCount} 只 ETF 真实行情，缺失标的已停止展示。`;
+      setDataState('数据错误', 'error');
     } else if (state.stale) {
       els.dataNotice.classList.remove('is-hidden');
       els.noticeText.textContent = '上游行情暂不可用，当前显示最近一次成功快照。';
