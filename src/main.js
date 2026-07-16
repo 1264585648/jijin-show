@@ -9,9 +9,15 @@ import {
 } from './data/etf-map.js';
 
 const REFRESH_INTERVAL_SECONDS = 15;
+const MOBILE_HEATMAP_LIMIT = 12;
+const SNAPSHOT_STALE_AFTER_MS = 30 * 60 * 1000;
+const mobileViewport = window.matchMedia('(max-width: 640px)');
+const pageQuery = new URLSearchParams(window.location.search);
+const requestedSectorId = pageQuery.get('sector');
+const requestedType = pageQuery.get('type') === 'concept' ? 'concept' : 'industry';
 
 const state = {
-  type: 'industry',
+  type: requestedType,
   mode: 'change',
   area: 'amount',
   query: '',
@@ -23,6 +29,8 @@ const state = {
   autoRefresh: true,
   countdown: REFRESH_INTERVAL_SECONDS,
   isLoading: false,
+  mobileExpanded: false,
+  marketMeta: null,
 };
 
 const stocksCache = new Map();
@@ -41,6 +49,7 @@ const els = {
   refreshBtn: document.querySelector('#refreshBtn'),
   autoRefreshToggle: document.querySelector('#autoRefreshToggle'),
   refreshCountdown: document.querySelector('#refreshCountdown'),
+  detailBackdrop: document.querySelector('#detailBackdrop'),
 };
 
 const MODE_LABELS = {
@@ -78,23 +87,73 @@ const formatPercent = (value) => `${value > 0 ? '+' : ''}${Number(value || 0).to
 const formatMoney = (value) => `${value > 0 ? '+' : ''}${Number(value || 0).toFixed(1)}亿`;
 const classByValue = (value) => (value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral');
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const escapeHtml = (value) => String(value ?? '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#039;');
+const finite = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+
+function setControlValue(control, value) {
+  state[control] = value;
+  document.querySelectorAll(`.segmented[data-control="${control}"] button`).forEach((button) => {
+    const isActive = button.dataset.value === value;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+}
 
 function enrichSector(sector) {
-  const total = sector.upCount + sector.downCount;
-  const riseRatio = total ? (sector.upCount / total) * 100 : 0;
+  const upCount = finite(sector.upCount);
+  const downCount = finite(sector.downCount);
+  const changePct = finite(sector.changePct);
+  const mainNetIn = finite(sector.mainNetIn);
+  const mainNetInRatio = finite(sector.mainNetInRatio);
+  const turnoverRate = finite(sector.turnoverRate);
+  const leadingStockChangePct = finite(sector.leadingStockChangePct);
+  const total = upCount + downCount;
+  const riseRatio = total ? (upCount / total) * 100 : 0;
   const hotScore = clamp(
-    50 + sector.changePct * 6 + sector.mainNetInRatio * 4 + riseRatio * 0.18 + sector.turnoverRate * 1.6 + sector.leadingStockChangePct * 0.5,
+    50 + changePct * 6 + mainNetInRatio * 4 + riseRatio * 0.18 + turnoverRate * 1.6 + leadingStockChangePct * 0.5,
     0,
     100,
   );
-  const tags = getSectorTags({ ...sector, riseRatio, hotScore });
+  const tags = getSectorTags({
+    ...sector,
+    changePct,
+    amount: finite(sector.amount),
+    mainNetIn,
+    mainNetInRatio,
+    turnoverRate,
+    leadingStockChangePct,
+    riseRatio,
+    hotScore,
+  });
   const relatedEtfs = sector.relatedEtfs?.length ? sector.relatedEtfs : matchSectorEtfs(sector.name, sector.category);
 
   return {
     ...sector,
+    id: String(sector.id || ''),
+    name: String(sector.name || '未命名板块'),
+    category: String(sector.category || '市场'),
+    changePct,
+    amount: finite(sector.amount),
+    marketCap: finite(sector.marketCap),
+    mainNetIn,
+    mainNetInRatio,
+    superLargeNetIn: finite(sector.superLargeNetIn),
+    bigNetIn: finite(sector.bigNetIn),
+    turnoverRate,
+    leadingStockChangePct,
+    upCount,
+    downCount,
     riseRatio,
     hotScore,
-    mainNetInAbs: Math.abs(sector.mainNetIn),
+    mainNetInAbs: Math.abs(mainNetIn),
     tags,
     relatedEtfs,
   };
@@ -171,11 +230,14 @@ function getTileSpan(item, data) {
 function updateRefreshUI() {
   els.refreshCountdown.textContent = state.autoRefresh ? `${state.countdown}s` : '已暂停';
   els.refreshBtn.disabled = state.isLoading;
-  els.refreshBtn.textContent = state.isLoading ? '刷新中...' : '手动刷新';
+  els.refreshBtn.classList.toggle('is-loading', state.isLoading);
+  const refreshLabel = els.refreshBtn.querySelector('.refresh-button-label');
+  if (refreshLabel) refreshLabel.textContent = state.isLoading ? '刷新中...' : '手动刷新';
 }
 
 function renderSummary(data) {
   const totalAmount = data.reduce((sum, item) => sum + item.amount, 0);
+  const hasAmount = data.some((item) => item.amount > 0);
   const totalFund = data.reduce((sum, item) => sum + item.mainNetIn, 0);
   const avgChange = data.reduce((sum, item) => sum + item.changePct, 0) / Math.max(data.length, 1);
   const strongest = [...data].sort((a, b) => b.hotScore - a.hotScore)[0];
@@ -183,7 +245,12 @@ function renderSummary(data) {
 
   const cards = [
     { label: '覆盖板块', value: data.length, suffix: '个', note: `${TYPE_LABELS[state.type]} · ${MODE_LABELS[state.mode]}` },
-    { label: '样本成交额', value: totalAmount.toFixed(0), suffix: '亿', note: `面积口径：${AREA_LABELS[state.area]}` },
+    {
+      label: '样本成交额',
+      value: hasAmount ? totalAmount.toFixed(0) : '待更新',
+      suffix: hasAmount ? '亿' : '',
+      note: hasAmount ? `面积口径：${AREA_LABELS[state.area]}` : '当前快照未提供有效成交额',
+    },
     {
       label: '主力净流入',
       value: `${totalFund > 0 ? '+' : ''}${totalFund.toFixed(1)}`,
@@ -204,9 +271,9 @@ function renderSummary(data) {
     .map(
       (card) => `
         <article class="summary-card">
-          <div class="summary-label">${card.label}</div>
-          <div class="summary-value ${card.valueClass || ''}">${card.value}<small>${card.suffix}</small></div>
-          <div class="summary-note">${card.note}</div>
+          <div class="summary-label">${escapeHtml(card.label)}</div>
+          <div class="summary-value ${card.valueClass || ''}">${escapeHtml(card.value)}<small>${escapeHtml(card.suffix)}</small></div>
+          <div class="summary-note">${escapeHtml(card.note)}</div>
         </article>
       `,
     )
@@ -225,6 +292,8 @@ function renderLegend() {
 function renderHeatmap(data) {
   const sortKey = state.area;
   const sorted = [...data].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+  const isMobile = mobileViewport.matches;
+  const visible = isMobile && !state.mobileExpanded ? sorted.slice(0, MOBILE_HEATMAP_LIMIT) : sorted;
   els.heatmapTitle.textContent = `${TYPE_LABELS[state.type]} · ${MODE_LABELS[state.mode]}`;
 
   if (!sorted.length) {
@@ -232,7 +301,7 @@ function renderHeatmap(data) {
     return;
   }
 
-  els.heatmap.innerHTML = sorted
+  const tiles = visible
     .map((item) => {
       const span = getTileSpan(item, sorted);
       const value = state.mode === 'fund' ? formatPercent(item.mainNetInRatio) : state.mode === 'hot' ? item.hotScore.toFixed(1) : formatPercent(item.changePct);
@@ -243,26 +312,34 @@ function renderHeatmap(data) {
       return `
         <button
           class="tile${selectedClass}${smallClass}"
-          data-id="${item.id}"
+          data-id="${escapeHtml(item.id)}"
           style="grid-column: span ${span.col}; grid-row: span ${span.row}; background:${getTileColor(item)}; border-color:${fundBorder};"
-          aria-label="${item.name} ${value}"
+          aria-label="${escapeHtml(item.name)} ${escapeHtml(value)}"
         >
           <div>
             <div class="tile-top">
-              <span class="tile-name">${item.name}</span>
-              <span class="tile-badge">${item.tags[0]}</span>
+              <span class="tile-name">${escapeHtml(item.name)}</span>
+              <span class="tile-badge">${escapeHtml(item.tags[0])}</span>
             </div>
             <div class="tile-change">${value}${state.mode === 'hot' ? '<small> 分</small>' : ''}</div>
           </div>
           <div class="tile-meta">
             <span>主力 ${formatMoney(item.mainNetIn)}</span>
             <span>${item.upCount}涨 / ${item.downCount}跌 · 扩散 ${item.riseRatio.toFixed(0)}%</span>
-            <span>领涨 ${item.leadingStock} ${formatPercent(item.leadingStockChangePct)}</span>
+            <span>领涨 ${escapeHtml(item.leadingStock || '待更新')} ${formatPercent(item.leadingStockChangePct)}</span>
           </div>
         </button>
       `;
     })
     .join('');
+
+  const toggle = isMobile && sorted.length > MOBILE_HEATMAP_LIMIT
+    ? `<button class="mobile-heatmap-toggle" type="button" data-heatmap-toggle aria-expanded="${state.mobileExpanded}">
+        ${state.mobileExpanded ? '收起至 Top 12' : `展开全部 ${sorted.length} 个板块`}
+      </button>`
+    : '';
+
+  els.heatmap.innerHTML = `${tiles}${toggle}`;
 }
 
 function getAnomalyList(data) {
@@ -275,15 +352,15 @@ function getAnomalyList(data) {
 function renderRankBlock(block) {
   return `
     <section class="rank-block">
-      <div class="rank-title"><strong>${block.title}</strong><span>${block.caption}</span></div>
+      <div class="rank-title"><strong>${escapeHtml(block.title)}</strong><span>${escapeHtml(block.caption)}</span></div>
       ${block.list
         .map(
           (item, index) => `
-          <div class="rank-item" data-id="${item.id}">
+          <div class="rank-item" data-id="${escapeHtml(item.id)}">
             <span class="rank-no">${index + 1}</span>
             <div>
-              <div class="rank-name">${item.name}</div>
-              <div class="rank-meta">${item.category} · ${block.meta(item)}</div>
+              <div class="rank-name">${escapeHtml(item.name)}</div>
+              <div class="rank-meta">${escapeHtml(item.category)} · ${escapeHtml(block.meta(item))}</div>
             </div>
             <strong class="rank-value ${block.valueClass(item)}">${block.value(item)}</strong>
           </div>
@@ -325,7 +402,7 @@ function renderEtfWatchlist(data) {
 
   return `
     <section class="rank-block etf-watch-block">
-      <div class="rank-title"><strong>ETF 观察池</strong><span>${getEtfFilterSummary(watchlist)}</span></div>
+      <div class="rank-title"><strong>ETF 观察池</strong><span>${escapeHtml(getEtfFilterSummary(watchlist))}</span></div>
       ${renderEtfFilterControls()}
       ${watchlist.length
         ? watchlist
@@ -338,10 +415,10 @@ function renderEtfWatchlist(data) {
               <div class="etf-watch-item ${quoteInfo?.tradable === false ? 'is-muted' : ''}">
                 <span class="rank-no">${index + 1}</span>
                 <div>
-                  <div class="rank-name">${quote?.code || item.code} ${quote?.name || item.label.replace(/^\d{6}\s*/, '')}</div>
-                  <div class="rank-meta">${item.signal} · ${item.sectors.join(' / ')}</div>
-                  <div class="etf-risk-tags">${riskTags.map((tag) => `<span>${tag}</span>`).join('')}</div>
-                  <div class="etf-quote-line ${quote ? classByValue(quote.changePct) : 'neutral'}">${quoteText}</div>
+                  <div class="rank-name">${escapeHtml(quote?.code || item.code)} ${escapeHtml(quote?.name || item.label.replace(/^\d{6}\s*/, ''))}</div>
+                  <div class="rank-meta">${escapeHtml(item.signal)} · ${escapeHtml(item.sectors.join(' / '))}</div>
+                  <div class="etf-risk-tags">${riskTags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
+                  <div class="etf-quote-line ${quote ? classByValue(quote.changePct) : 'neutral'}">${escapeHtml(quoteText)}</div>
                 </div>
                 <strong class="rank-value ${classByValue(item.fund)}">${item.score.toFixed(0)}</strong>
               </div>
@@ -387,6 +464,7 @@ function renderRanks(data) {
 function renderDetail(item) {
   if (!item) {
     els.detailPanel.innerHTML = `
+      <button class="detail-sheet-close" type="button" data-close-detail aria-label="关闭板块详情">×</button>
       <div class="empty-detail">
         <span>选择一个板块</span>
         <p>查看资金结构、领涨股、内部扩散度、成份股和相关 ETF。</p>
@@ -399,11 +477,12 @@ function renderDetail(item) {
   const isStocksLoading = stocksLoadingIds.has(item.id);
 
   els.detailPanel.innerHTML = `
+    <button class="detail-sheet-close" type="button" data-close-detail aria-label="关闭板块详情">×</button>
     <div class="detail-hero">
-      <span class="eyebrow">${item.category} · ${item.id}</span>
-      <h2>${item.name}</h2>
+      <span class="eyebrow">${escapeHtml(item.category)} · ${escapeHtml(item.id)}</span>
+      <h2>${escapeHtml(item.name)}</h2>
       <div class="detail-change ${classByValue(item.changePct)}">${formatPercent(item.changePct)}</div>
-      <div class="tag-row">${item.tags.map((tag) => `<span class="tag">${tag}</span>`).join('')}</div>
+      <div class="tag-row">${item.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>
     </div>
     <div class="detail-tabs">
       ${Object.entries(TAB_LABELS)
@@ -424,11 +503,12 @@ function renderDetailTab(item, stocks, isStocksLoading) {
 }
 
 function renderOverviewTab(item) {
+  const hasAmount = item.amount > 0;
   return `
     <div class="metric-list">
       <div class="metric"><span>主力净流入</span><strong class="${classByValue(item.mainNetIn)}">${formatMoney(item.mainNetIn)}</strong></div>
       <div class="metric"><span>主力净占比</span><strong class="${classByValue(item.mainNetInRatio)}">${formatPercent(item.mainNetInRatio)}</strong></div>
-      <div class="metric"><span>成交额</span><strong>${item.amount.toFixed(0)} 亿</strong></div>
+      <div class="metric"><span>成交额</span><strong>${hasAmount ? `${item.amount.toFixed(0)} 亿` : '待更新'}</strong></div>
       <div class="metric"><span>换手率</span><strong>${formatPercent(item.turnoverRate)}</strong></div>
       <div class="metric"><span>上涨家数</span><strong>${item.upCount} 家</strong></div>
       <div class="metric"><span>下跌家数</span><strong>${item.downCount} 家</strong></div>
@@ -441,33 +521,36 @@ function renderOverviewTab(item) {
     <section class="detail-section">
       <h3>领涨与资金核心</h3>
       <div class="metric-list compact-metrics">
-        <div class="metric"><span>领涨股</span><strong>${item.leadingStock} ${formatPercent(item.leadingStockChangePct)}</strong></div>
-        <div class="metric"><span>主力净流入最大股</span><strong>${item.topFundFlowStock}</strong></div>
+        <div class="metric"><span>领涨股</span><strong>${escapeHtml(item.leadingStock || '待更新')} ${formatPercent(item.leadingStockChangePct)}</strong></div>
+        <div class="metric"><span>主力净流入最大股</span><strong>${escapeHtml(item.topFundFlowStock || '待更新')}</strong></div>
       </div>
     </section>
   `;
 }
 
 function renderStocksTab(item, stocks, isStocksLoading) {
-  if (isStocksLoading && !stocks) return `<div class="loading-box">正在加载 ${item.name} 成份股...</div>`;
+  if (isStocksLoading && !stocks) return `<div class="loading-box">正在加载 ${escapeHtml(item.name)} 成份股...</div>`;
   if (!stocks?.length) return `<div class="loading-box">暂无成份股数据</div>`;
 
   return `
     <section class="detail-section full-section">
-      <div class="table-headline"><h3>成份股强弱</h3><span>模拟字段 · 后续接真实接口</span></div>
+      <div class="table-headline"><h3>成份股强弱</h3><span>板块快照推导 · 缺失字段显示待更新</span></div>
       <div class="stock-table">
         <div class="stock-row stock-row-head"><span>代码</span><span>名称</span><span>涨跌幅</span><span>主力</span><span>角色</span></div>
         ${stocks
           .map(
-            (stock) => `
+            (stock) => {
+              const isPartial = !stock.code && Number(stock.amount || 0) === 0 && Number(stock.fundNetIn || 0) === 0;
+              return `
             <div class="stock-row">
-              <span>${stock.code}</span>
-              <strong>${stock.name}</strong>
+              <span>${escapeHtml(stock.code || '--')}</span>
+              <strong>${escapeHtml(stock.name || '待更新')}</strong>
               <span class="${classByValue(stock.changePct)}">${formatPercent(stock.changePct)}</span>
-              <span class="${classByValue(stock.fundNetIn)}">${formatMoney(stock.fundNetIn)}</span>
-              <span>${stock.role}</span>
+              <span class="${isPartial ? 'neutral' : classByValue(stock.fundNetIn)}">${isPartial ? '待更新' : formatMoney(stock.fundNetIn)}</span>
+              <span>${escapeHtml(stock.role || '成份股')}</span>
             </div>
-          `,
+          `;
+            },
           )
           .join('')}
       </div>
@@ -494,9 +577,9 @@ function renderEtfTab(item) {
             return `
               <article class="etf-card">
                 <div>
-                  <strong>${quote?.code || label.match(/\d{6}/)?.[0] || ''} ${quote?.name || label.replace(/^\d{6}\s*/, '')}</strong>
-                  <span>${signal} · ${quote ? `${formatPercent(quote.changePct)} · 成交 ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}` : '等待 ETF 行情'}</span>
-                  <div class="etf-risk-tags">${riskTags.map((tag) => `<span>${tag}</span>`).join('')}</div>
+                  <strong>${escapeHtml(quote?.code || label.match(/\d{6}/)?.[0] || '')} ${escapeHtml(quote?.name || label.replace(/^\d{6}\s*/, ''))}</strong>
+                  <span>${escapeHtml(signal)} · ${quote ? `${formatPercent(quote.changePct)} · 成交 ${quote.amount.toFixed(1)}亿 · 溢折 ${formatPercent(quote.premiumRate || 0)}` : '等待 ETF 行情'}</span>
+                  <div class="etf-risk-tags">${riskTags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
                 </div>
                 <div class="etf-score ${score >= 70 ? 'positive' : 'neutral'}">${score.toFixed(0)}</div>
               </article>
@@ -504,7 +587,7 @@ function renderEtfTab(item) {
           })
           .join('')}
       </div>
-      <p class="summary-note">真实接口开启后会合并 ETF 实时涨跌幅、成交额和溢折价；未开启时使用模拟行情。</p>
+      <p class="summary-note">ETF 行情不可用时会明确显示“待更新”，不会使用模拟数据替代。</p>
     </section>
   `;
 }
@@ -539,13 +622,13 @@ function renderFlowTab(item) {
 
 function renderTooltip(item, event) {
   els.tooltip.innerHTML = `
-    <h4>${item.name} <span class="${classByValue(item.changePct)}">${formatPercent(item.changePct)}</span></h4>
+    <h4>${escapeHtml(item.name)} <span class="${classByValue(item.changePct)}">${formatPercent(item.changePct)}</span></h4>
     <div class="tooltip-grid">
-      <div><span>成交额</span><strong>${item.amount.toFixed(0)} 亿</strong></div>
+      <div><span>成交额</span><strong>${item.amount > 0 ? `${item.amount.toFixed(0)} 亿` : '待更新'}</strong></div>
       <div><span>主力净流入</span><strong class="${classByValue(item.mainNetIn)}">${formatMoney(item.mainNetIn)}</strong></div>
       <div><span>主力净占比</span><strong class="${classByValue(item.mainNetInRatio)}">${formatPercent(item.mainNetInRatio)}</strong></div>
       <div><span>上涨/下跌</span><strong>${item.upCount} / ${item.downCount}</strong></div>
-      <div><span>领涨股</span><strong>${item.leadingStock}</strong></div>
+      <div><span>领涨股</span><strong>${escapeHtml(item.leadingStock || '待更新')}</strong></div>
     </div>
   `;
   els.tooltip.style.left = `${event.clientX + 16}px`;
@@ -584,27 +667,36 @@ function selectSector(id) {
   renderHeatmap(data);
   renderDetail(item);
   ensureStocksForSelected();
+  if (item) openMobileDetail();
 }
 
 function render() {
   const data = getCurrentData();
-  if (!state.selectedId || !data.some((item) => item.id === state.selectedId)) state.selectedId = data[0]?.id || null;
+  if (state.selectedId && !data.some((item) => item.id === state.selectedId)) state.selectedId = null;
+  if (!mobileViewport.matches && !state.selectedId) state.selectedId = data[0]?.id || null;
 
   const selected = data.find((item) => item.id === state.selectedId);
-  els.updatedAt.textContent = new Date().toLocaleString('zh-CN', {
+  const displayTimestamp = state.marketMeta?.updatedAt || Date.now();
+  const displayDate = new Date(displayTimestamp);
+  const timePrefix = state.marketMeta?.stale ? '缓存于' : state.marketMeta?.snapshot ? '快照' : '数据';
+  els.updatedAt.textContent = `${timePrefix} ${displayDate.toLocaleString('zh-CN', {
     hour12: false,
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-  });
+  })}`;
 
   renderSummary(data);
   renderLegend();
   renderRanks(data);
   renderHeatmap(data);
   renderDetail(selected);
+  if (!mobileViewport.matches) {
+    els.detailPanel.setAttribute('aria-hidden', selected ? 'false' : 'true');
+    els.detailPanel.inert = false;
+  }
   updateRefreshUI();
   ensureStocksForSelected();
 }
@@ -614,13 +706,20 @@ async function loadData({ preserveSelected = true, realtime = true } = {}) {
   updateRefreshUI();
   const selectedBeforeLoad = state.selectedId;
   state.rawData = await fetchSectorHeatmap({ type: state.type, realtime });
+  if (state.area === 'amount' && state.rawData.length && state.rawData.every((item) => Number(item.amount || 0) <= 0)) {
+    setControlValue('area', 'mainNetInAbs');
+  }
   await refreshEtfQuotes(state.rawData.map(enrichSector));
   state.isLoading = false;
   state.countdown = REFRESH_INTERVAL_SECONDS;
 
   if (!preserveSelected) state.selectedId = null;
   if (preserveSelected && selectedBeforeLoad) state.selectedId = selectedBeforeLoad;
+  if (!preserveSelected && requestedSectorId && state.rawData.some((item) => String(item.id) === requestedSectorId)) {
+    state.selectedId = requestedSectorId;
+  }
   render();
+  if (!preserveSelected && state.selectedId && mobileViewport.matches) openMobileDetail();
 }
 
 function updateEtfFilter(target) {
@@ -631,16 +730,63 @@ function updateEtfFilter(target) {
   renderRanks(getCurrentData());
 }
 
+function openMobileDetail() {
+  if (!mobileViewport.matches) return;
+  window.clearTimeout(openMobileDetail.closeTimer);
+  els.detailBackdrop.hidden = false;
+  els.detailPanel.setAttribute('aria-hidden', 'false');
+  els.detailPanel.setAttribute('aria-modal', 'true');
+  els.detailPanel.inert = false;
+  document.body.classList.add('mobile-detail-open');
+  window.requestAnimationFrame(() => {
+    els.detailBackdrop.classList.add('is-visible');
+    els.detailPanel.classList.add('is-open');
+  });
+  window.setTimeout(() => els.detailPanel.querySelector('[data-close-detail]')?.focus(), 230);
+}
+
+function closeMobileDetail({ restoreFocus = true } = {}) {
+  if (!mobileViewport.matches && !els.detailPanel.classList.contains('is-open')) return;
+  els.detailBackdrop.classList.remove('is-visible');
+  els.detailPanel.classList.remove('is-open');
+  els.detailPanel.setAttribute('aria-hidden', 'true');
+  els.detailPanel.setAttribute('aria-modal', String(mobileViewport.matches));
+  els.detailPanel.inert = true;
+  document.body.classList.remove('mobile-detail-open');
+  window.clearTimeout(openMobileDetail.closeTimer);
+  openMobileDetail.closeTimer = window.setTimeout(() => {
+    if (!els.detailBackdrop.classList.contains('is-visible')) els.detailBackdrop.hidden = true;
+  }, 230);
+
+  if (restoreFocus && state.selectedId) {
+    window.setTimeout(() => els.heatmap.querySelector(`[data-id="${CSS.escape(state.selectedId)}"]`)?.focus(), 0);
+  }
+}
+
 function bindEvents() {
+  window.addEventListener('jijin:api-success', (event) => {
+    if (!String(event.detail?.endpoint || '').includes('/api/sector/heatmap')) return;
+    const payload = event.detail?.payload || {};
+    const rawTimestamp = Number(payload.updatedAt || 0);
+    const updatedAt = rawTimestamp ? (rawTimestamp < 1e12 ? rawTimestamp * 1000 : rawTimestamp) : Date.now();
+    const isSnapshot = String(payload.delivery || '').includes('snapshot');
+    state.marketMeta = {
+      stale: payload.stale === true || (isSnapshot && Date.now() - updatedAt > SNAPSHOT_STALE_AFTER_MS),
+      snapshot: isSnapshot,
+      updatedAt,
+    };
+  });
+
   document.querySelectorAll('.segmented').forEach((group) => {
     group.addEventListener('click', async (event) => {
       const button = event.target.closest('button');
       if (!button) return;
       const control = group.dataset.control;
-      state[control] = button.dataset.value;
-      group.querySelectorAll('button').forEach((item) => item.classList.toggle('is-active', item === button));
+      setControlValue(control, button.dataset.value);
       state.selectedId = null;
       state.activeTab = 'overview';
+      state.mobileExpanded = false;
+      closeMobileDetail({ restoreFocus: false });
 
       if (control === 'type') {
         await loadData({ preserveSelected: false });
@@ -653,6 +799,8 @@ function bindEvents() {
   els.searchInput.addEventListener('input', (event) => {
     state.query = event.target.value;
     state.selectedId = null;
+    state.mobileExpanded = false;
+    closeMobileDetail({ restoreFocus: false });
     render();
   });
 
@@ -670,6 +818,17 @@ function bindEvents() {
   });
 
   document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-close-detail]')) {
+      closeMobileDetail();
+      return;
+    }
+
+    if (event.target.closest('[data-heatmap-toggle]')) {
+      state.mobileExpanded = !state.mobileExpanded;
+      renderHeatmap(getCurrentData());
+      return;
+    }
+
     const tab = event.target.closest('[data-tab]');
     if (tab) {
       state.activeTab = tab.dataset.tab;
@@ -695,6 +854,25 @@ function bindEvents() {
   });
 
   els.heatmap.addEventListener('mouseleave', hideTooltip);
+  els.detailBackdrop.addEventListener('click', () => closeMobileDetail());
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && els.detailPanel.classList.contains('is-open')) closeMobileDetail();
+  });
+  mobileViewport.addEventListener('change', (event) => {
+    if (event.matches) {
+      state.selectedId = null;
+      state.mobileExpanded = false;
+      closeMobileDetail({ restoreFocus: false });
+    } else {
+      els.detailBackdrop.hidden = true;
+      els.detailBackdrop.classList.remove('is-visible');
+      els.detailPanel.classList.remove('is-open');
+      els.detailPanel.inert = false;
+      els.detailPanel.setAttribute('aria-modal', 'false');
+      document.body.classList.remove('mobile-detail-open');
+    }
+    render();
+  });
 }
 
 function startAutoRefreshTimer() {
@@ -714,5 +892,7 @@ function startAutoRefreshTimer() {
 }
 
 bindEvents();
+setControlValue('type', state.type);
+els.detailPanel.setAttribute('aria-modal', String(mobileViewport.matches));
 startAutoRefreshTimer();
 loadData({ preserveSelected: false });

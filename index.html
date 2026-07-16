@@ -2,9 +2,10 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <title>基金大盘 · 市场总览</title>
+    <link rel="icon" type="image/svg+xml" href="./src/favicon.svg" />
     <link rel="stylesheet" href="./src/overview.css" />
   </head>
   <body>
@@ -13,8 +14,8 @@
       <nav class="primary-nav" aria-label="主要导航">
         <a class="nav-link is-active" href="./index.html" aria-current="page">市场总览</a>
         <a class="nav-link" href="./heatmap.html">板块热力</a>
-        <button class="nav-link" type="button" data-coming-soon="资金流向">资金流向</button>
-        <button class="nav-link" type="button" data-coming-soon="ETF观察池">ETF观察池</button>
+        <a class="nav-link" href="./flows.html">资金流向</a>
+        <a class="nav-link" href="./etf.html">ETF观察池</a>
       </nav>
       <div class="header-market">
         <div class="market-session" id="marketSession">
@@ -46,9 +47,13 @@
               <path d="M4 19V9m6 10V5m6 14v-7m4 7V3" />
             </svg>
             今日市场判断
+            <span class="freshness-status is-hidden" id="freshnessStatus" role="status">
+              <strong id="freshnessMode">接口数据</strong>
+              <time id="freshnessTime">等待数据时间</time>
+            </span>
           </div>
           <h1 id="judgmentTitle">等待真实市场数据</h1>
-          <p id="judgmentDescription">接入数据后，将根据涨跌家数、主力资金和板块扩散度生成市场判断。</p>
+          <p id="judgmentDescription">接入数据后，将根据涨跌家数、板块口径资金合计和板块扩散度生成市场判断。</p>
         </div>
         <div class="judgment-tags" id="judgmentTags" aria-label="市场状态">
           <span class="status-tag is-neutral">等待数据</span>
@@ -56,12 +61,26 @@
       </section>
 
       <section class="kpi-grid" aria-label="市场核心指标">
+        <div class="mobile-module-heading mobile-only" aria-hidden="true">
+          <div>
+            <span class="mobile-module-index">02</span>
+            <h2>市场温度</h2>
+          </div>
+          <strong id="mobileTemperatureLabel">等待数据</strong>
+        </div>
+        <div class="temperature-meter mobile-only" id="temperatureMeter" role="meter" aria-label="上涨板块占比" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="temperature-labels">
+            <span id="mobileUpSummary">上涨 --</span>
+            <span id="mobileDownSummary">下跌 --</span>
+          </div>
+          <div class="temperature-track" aria-hidden="true"><i id="temperatureUpFill"></i></div>
+        </div>
         <article class="kpi-card surface">
           <div class="kpi-icon is-blue" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M6 3h12M8 3l4 7 4-7m-8 8h8m-8 4h8m-4-5v11" /></svg>
           </div>
           <div class="kpi-content">
-            <span class="kpi-label">全市场成交额</span>
+            <span class="kpi-label">板块成交额参考</span>
             <strong class="kpi-value" id="totalAmount">--</strong>
             <span class="kpi-note" id="amountNote">等待数据</span>
           </div>
@@ -72,7 +91,7 @@
             <svg viewBox="0 0 24 24"><path d="m4 17 5-5 4 4 7-8m-5 0h5v5" /></svg>
           </div>
           <div class="kpi-content">
-            <span class="kpi-label">主力净流入</span>
+            <span class="kpi-label">板块口径资金合计</span>
             <strong class="kpi-value" id="totalFund">--</strong>
             <span class="kpi-note" id="fundNote">等待数据</span>
           </div>
@@ -83,11 +102,11 @@
             <svg viewBox="0 0 24 24"><path d="M5 19V9m5 10V5m5 14v-7m5 7V8" /></svg>
           </div>
           <div class="kpi-content">
-            <span class="kpi-label">上涨家数</span>
+            <span class="kpi-label">上涨板块</span>
             <div class="breadth-values">
               <strong class="kpi-value positive" id="upCount">--</strong>
               <span class="breadth-divider"></span>
-              <span class="breadth-down"><small>下跌</small><strong id="downCount">--</strong></span>
+              <span class="breadth-down"><small>下跌板块</small><strong id="downCount">--</strong></span>
             </div>
             <span class="kpi-note" id="breadthNote">等待数据</span>
           </div>
@@ -109,20 +128,32 @@
         <article class="chart-panel surface">
           <div class="panel-heading">
             <div>
-              <h2>市场宽度与主力资金</h2>
+              <span class="mobile-module-index mobile-only">04</span>
+              <h2><span class="desktop-only">市场宽度与板块资金</span><span class="mobile-only">资金脉搏</span></h2>
               <p>基于真实接口刷新样本记录，不补造历史行情</p>
             </div>
             <span class="sample-count" id="sampleCount">0 个样本</span>
           </div>
-          <div class="chart-legend" id="chartLegend" aria-hidden="true">
-            <span><i class="legend-line is-red"></i>上涨家数占比（左轴）</span>
-            <span><i class="legend-line is-blue"></i>主力净流入（右轴）</span>
+          <div class="pulse-toggle mobile-only" id="pulseToggle" role="tablist" aria-label="资金脉搏指标" hidden>
+            <button type="button" role="tab" data-pulse-metric="fund" aria-selected="true">板块资金</button>
+            <button type="button" role="tab" data-pulse-metric="breadth" aria-selected="false">市场宽度</button>
           </div>
-          <div class="market-chart" id="marketChart" aria-label="市场宽度与主力净流入趋势图"></div>
-          <p class="chart-note">注：上涨家数占比 = 上涨家数 / 全市场家数；刷新后持续积累真实样本。</p>
+          <div class="chart-legend" id="chartLegend" aria-hidden="true">
+            <span><i class="legend-line is-red"></i>上涨板块占比（左轴）</span>
+            <span><i class="legend-line is-blue"></i>板块资金合计（右轴）</span>
+          </div>
+          <div class="market-chart" id="marketChart" aria-label="市场宽度与板块口径资金合计趋势图"></div>
+          <p class="chart-note">注：市场宽度按当前板块节点的涨跌方向计算，不把多层级行业成份股重复相加；刷新后持续积累真实样本。</p>
         </article>
 
         <aside class="rank-column" aria-label="市场强弱方向">
+          <div class="mobile-module-heading mobile-only">
+            <div>
+              <span class="mobile-module-index">03</span>
+              <h2>主线雷达</h2>
+            </div>
+            <a href="./heatmap.html">查看全部 <span aria-hidden="true">›</span></a>
+          </div>
           <section class="rank-panel surface">
             <div class="rank-heading">
               <h2>强势方向</h2>
@@ -142,14 +173,44 @@
 
       <section class="signals-panel surface">
         <div class="signals-heading">
-          <h2>关键异动</h2>
+          <div>
+            <span class="mobile-module-index mobile-only">05</span>
+            <h2><span class="desktop-only">关键异动</span><span class="mobile-only">行动清单</span></h2>
+          </div>
           <span id="updatedAt">尚未更新</span>
+          <a class="action-view-all mobile-only" id="actionViewAll" href="./flows.html">查看全部 <span aria-hidden="true">›</span></a>
+        </div>
+        <div class="action-tabs mobile-only" role="tablist" aria-label="行动清单分类">
+          <button class="is-active" type="button" role="tab" data-action-tab="signals" aria-controls="signalGrid" aria-selected="true">关键异动</button>
+          <button type="button" role="tab" data-action-tab="etfs" aria-controls="etfActionList" aria-selected="false">ETF 观察</button>
         </div>
         <div class="signal-grid" id="signalGrid">
           <div class="signal-empty">等待真实数据后生成异动信号</div>
         </div>
+        <div class="etf-action-list mobile-only" id="etfActionList" role="tabpanel" aria-label="ETF 观察列表" hidden>
+          <div class="signal-empty">等待真实板块数据后生成 ETF 观察方向</div>
+        </div>
       </section>
     </main>
+
+    <nav class="mobile-bottom-nav mobile-only" aria-label="移动端主要导航">
+      <a class="is-active" href="./index.html" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 10v10h13V10M9 20v-6h6v6" /></svg>
+        <span>首页</span>
+      </a>
+      <a href="./heatmap.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="8" height="7" rx="1" /><rect x="13" y="4" width="8" height="11" rx="1" /><rect x="3" y="13" width="8" height="7" rx="1" /><rect x="13" y="17" width="8" height="3" rx="1" /></svg>
+        <span>板块</span>
+      </a>
+      <a href="./flows.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V8m5 10V4m5 14v-7m5 7V6" /></svg>
+        <span>资金</span>
+      </a>
+      <a href="./etf.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h5M8 16h7" /></svg>
+        <span>ETF</span>
+      </a>
+    </nav>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

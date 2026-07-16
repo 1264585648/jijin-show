@@ -17,6 +17,25 @@ function parseEtfCode(label) {
   return String(label || '').match(/\b\d{6}\b/)?.[0] || '';
 }
 
+function normalizeFundAmount(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return value;
+  // Compatibility for persisted snapshots generated before the provider
+  // boundary fix: those snapshots can contain small raw-yuan residuals mixed
+  // with 亿元 values. New responses are normalized in server/main.py.
+  return Math.abs(number) >= 1_000 ? number / 100_000_000 : number;
+}
+
+function normalizeSectorMoneyFields(node) {
+  if (!node || typeof node !== 'object') return node;
+  return {
+    ...node,
+    mainNetIn: normalizeFundAmount(node.mainNetIn),
+    superLargeNetIn: normalizeFundAmount(node.superLargeNetIn),
+    bigNetIn: normalizeFundAmount(node.bigNetIn),
+  };
+}
+
 function dispatchApiStatus(type, detail) {
   try {
     window.dispatchEvent(new CustomEvent(`jijin:api-${type}`, { detail }));
@@ -79,7 +98,7 @@ async function fetchJson(endpoint) {
 
 export async function fetchSectorHeatmap({ type = 'industry' } = {}) {
   const payload = await fetchJson(`/api/sector/heatmap?type=${encodeURIComponent(type)}&period=today`);
-  return payload?.nodes || [];
+  return (payload?.nodes || []).map(normalizeSectorMoneyFields);
 }
 
 export async function fetchSectorStocks(sector) {

@@ -50,7 +50,14 @@ print(payload["nodes"][0]["id"])')"
 
 assert_json "industry stocks" "$API_BASE/api/sector/$first_sector/stocks?type=industry&limit=10"
 assert_json "ETF quotes" "$API_BASE/api/etf/quotes?codes=512480,159995,515230"
-assert_json "debug columns" "$API_BASE/api/debug/columns?type=industry&period=today"
+# The persisted-snapshot production API intentionally omits debug-only routes.
+# Validate the endpoint when present without failing a production smoke run.
+if debug_payload="$(curl -fsS "$API_BASE/api/debug/columns?type=industry&period=today" 2>/dev/null)"; then
+  printf '%s' "$debug_payload" | python3 -m json.tool >/dev/null
+  echo "-> debug columns"
+else
+  echo "-> debug columns (not exposed; skipped)"
+fi
 
 printf '%s' "$concept_payload" | python3 -c 'import json, sys
 payload = json.load(sys.stdin)

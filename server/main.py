@@ -152,6 +152,13 @@ def money_to_yi(value: Any) -> float:
     return round(number, 2)
 
 
+def eastmoney_yuan_to_yi(series: pd.Series | None) -> pd.Series | None:
+    """Convert documented Eastmoney amount fields from yuan to 亿元 at ingestion."""
+    if series is None:
+        return None
+    return pd.to_numeric(series, errors="coerce").div(100_000_000)
+
+
 def market_cap_to_yi(value: Any) -> float:
     return money_to_yi(value)
 
@@ -321,7 +328,7 @@ def eastmoney_board_df(sector_type: SectorType) -> pd.DataFrame:
             "fid": "f12",
             "fs": "m:90 t:3 f:!50",
             "fields": (
-                "f2,f3,f4,f8,f12,f14,f15,f16,f17,f18,f20,f21,f24,f25,f22,"
+                "f2,f3,f4,f6,f8,f12,f14,f15,f16,f17,f18,f20,f21,f24,f25,f22,"
                 "f33,f11,f62,f128,f124,f107,f104,f105,f136"
             ),
         }
@@ -336,6 +343,7 @@ def eastmoney_board_df(sector_type: SectorType) -> pd.DataFrame:
             "涨跌额": raw_df.get("f4"),
             "涨跌幅": raw_df.get("f3"),
             "总市值": raw_df.get("f20"),
+            "成交额": raw_df.get("f6"),
             "换手率": raw_df.get("f8"),
             "上涨家数": raw_df.get("f104"),
             "下跌家数": raw_df.get("f105"),
@@ -343,10 +351,12 @@ def eastmoney_board_df(sector_type: SectorType) -> pd.DataFrame:
             "领涨股票-涨跌幅": raw_df.get("f136"),
         }
     )
-    return normalize_numeric_columns(
+    df = normalize_numeric_columns(
         df,
-        ["最新价", "涨跌额", "涨跌幅", "总市值", "换手率", "上涨家数", "下跌家数", "领涨股票-涨跌幅"],
+        ["最新价", "涨跌额", "涨跌幅", "总市值", "成交额", "换手率", "上涨家数", "下跌家数", "领涨股票-涨跌幅"],
     )
+    df["成交额"] = eastmoney_yuan_to_yi(df.get("成交额"))
+    return df
 
 
 def eastmoney_fund_flow_df(sector_type: SectorType, period: Period) -> pd.DataFrame:
@@ -432,6 +442,11 @@ def eastmoney_fund_flow_df(sector_type: SectorType, period: Period) -> pd.DataFr
 
     numeric_columns = [column for column in df.columns if column != "名称" and "最大股" not in column]
     df = normalize_numeric_columns(df, numeric_columns)
+    # Eastmoney f62/f66/f72 and their multi-day equivalents are always raw
+    # yuan. Convert them once at the provider boundary so small values are not
+    # mistaken for already-normalized 亿元 later in the response pipeline.
+    for column in (column for column in df.columns if "净额" in str(column)):
+        df[column] = eastmoney_yuan_to_yi(df.get(column))
     main_column = f"{prefix}主力净流入-净额"
     if main_column in df.columns:
         df.sort_values([main_column], ascending=False, inplace=True)

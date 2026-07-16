@@ -2,22 +2,34 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
     <title>基金大盘 · 板块实时热力图</title>
+    <link rel="icon" type="image/svg+xml" href="./src/favicon.svg" />
     <link rel="stylesheet" href="./src/styles.css" />
     <link rel="stylesheet" href="./src/realtime.css" />
     <link rel="stylesheet" href="./src/api-status.css" />
     <link rel="stylesheet" href="./src/responsive.css" />
     <link rel="stylesheet" href="./src/mobile-safe.css" />
+    <link rel="stylesheet" href="./src/heatmap-mobile.css" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div>
+        <a class="heatmap-mobile-brand" href="./index.html" aria-label="返回基金大盘首页">
+          <strong>基金大盘</strong>
+          <span>板块热力</span>
+        </a>
+        <div class="topbar-copy">
           <div class="eyebrow">Jijin Show · Sector Heatmap</div>
           <h1>板块实时热力图</h1>
           <p class="subtitle">用真实接口返回的涨跌、资金、成交和扩散度识别今日市场主线。</p>
-          <a class="ghost-button" href="./index.html">返回市场总览</a>
+          <nav class="heatmap-desktop-nav" aria-label="主要导航">
+            <a href="./index.html">市场总览</a>
+            <a class="is-active" href="./heatmap.html" aria-current="page">板块热力</a>
+            <a href="./flows.html">资金流向</a>
+            <a href="./etf.html">ETF观察池</a>
+          </nav>
         </div>
         <div class="market-card">
           <div class="market-status">
@@ -28,7 +40,10 @@
             </div>
           </div>
           <div class="market-actions">
-            <button id="refreshBtn" class="ghost-button" type="button">手动刷新</button>
+            <button id="refreshBtn" class="ghost-button" type="button" aria-label="刷新板块数据">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 2 5.3M20 4v7h-7" /></svg>
+              <span class="refresh-button-label">手动刷新</span>
+            </button>
             <label class="switch-control">
               <input id="autoRefreshToggle" type="checkbox" checked />
               <span>自动刷新</span>
@@ -44,24 +59,24 @@
         <div class="control-group">
           <span>板块类型</span>
           <div class="segmented" data-control="type">
-            <button class="is-active" data-value="industry">行业板块</button>
-            <button data-value="concept">概念板块</button>
+            <button class="is-active" data-value="industry" type="button" aria-pressed="true">行业板块</button>
+            <button data-value="concept" type="button" aria-pressed="false">概念板块</button>
           </div>
         </div>
         <div class="control-group">
           <span>显示模式</span>
           <div class="segmented" data-control="mode">
-            <button class="is-active" data-value="change">涨跌热力</button>
-            <button data-value="fund">资金热力</button>
-            <button data-value="hot">综合热度</button>
+            <button class="is-active" data-value="change" type="button" aria-pressed="true">涨跌热力</button>
+            <button data-value="fund" type="button" aria-pressed="false">资金热力</button>
+            <button data-value="hot" type="button" aria-pressed="false">综合热度</button>
           </div>
         </div>
         <div class="control-group">
           <span>面积口径</span>
           <div class="segmented" data-control="area">
-            <button class="is-active" data-value="amount">成交额</button>
-            <button data-value="mainNetInAbs">资金规模</button>
-            <button data-value="marketCap">总市值</button>
+            <button class="is-active" data-value="amount" type="button" aria-pressed="true">成交额</button>
+            <button data-value="mainNetInAbs" type="button" aria-pressed="false">资金规模</button>
+            <button data-value="marketCap" type="button" aria-pressed="false">总市值</button>
           </div>
         </div>
         <div class="control-group search-box">
@@ -84,11 +99,30 @@
           </div>
           <div id="heatmap" class="heatmap" aria-label="板块实时热力图"></div>
         </section>
-        <aside class="detail-panel panel" id="detailPanel">
+        <aside class="detail-panel panel" id="detailPanel" role="dialog" aria-modal="false" aria-hidden="true" aria-label="板块详情" inert>
           <div class="empty-detail"><span>选择一个板块</span><p>查看资金结构、领涨股、内部扩散度、成份股和相关 ETF。</p></div>
         </aside>
       </main>
     </div>
+    <div class="heatmap-sheet-backdrop" id="detailBackdrop" hidden></div>
+    <nav class="heatmap-bottom-nav" aria-label="移动端主要导航">
+      <a href="./index.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 10v10h13V10M9 20v-6h6v6" /></svg>
+        <span>首页</span>
+      </a>
+      <a class="is-active" href="./heatmap.html" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="8" height="7" rx="1" /><rect x="13" y="4" width="8" height="11" rx="1" /><rect x="3" y="13" width="8" height="7" rx="1" /><rect x="13" y="17" width="8" height="3" rx="1" /></svg>
+        <span>板块</span>
+      </a>
+      <a href="./flows.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V8m5 10V4m5 14v-7m5 7V6" /></svg>
+        <span>资金</span>
+      </a>
+      <a href="./etf.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h5M8 16h7" /></svg>
+        <span>ETF</span>
+      </a>
+    </nav>
     <div class="tooltip" id="tooltip"></div>
     <script src="./src/config.js"></script>
     <script type="module" src="./src/data-mode-status.js"></script>

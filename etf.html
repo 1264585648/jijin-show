@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>基金大盘 · ETF观察池</title>
+    <link rel="icon" type="image/svg+xml" href="./src/favicon.svg" />
+    <link rel="stylesheet" href="./src/mobile-pages.css" />
+  </head>
+  <body>
+    <header class="mobile-app-header">
+      <a class="mobile-brand" href="./index.html">基金大盘</a>
+      <nav class="desktop-nav" aria-label="主要导航">
+        <a href="./index.html">市场总览</a>
+        <a href="./heatmap.html">板块热力</a>
+        <a href="./flows.html">资金流向</a>
+        <a class="is-active" href="./etf.html" aria-current="page">ETF观察池</a>
+      </nav>
+      <div class="header-actions">
+        <span class="live-state" id="dataState"><i></i><span>连接中</span></span>
+        <button class="refresh-button" id="refreshBtn" type="button" aria-label="刷新ETF数据">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 2 5.3M20 4v7h-7" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="mobile-page-shell">
+      <section class="page-intro">
+        <div>
+          <span class="page-kicker">ETF WATCHLIST</span>
+          <h1>ETF观察池</h1>
+          <p>把板块资金信号转换成可观察标的，同时检查成交活跃度与溢折价风险。</p>
+        </div>
+        <time id="updatedAt">等待更新</time>
+      </section>
+
+      <section class="compact-notice is-hidden" id="dataNotice" role="status">
+        <strong>部分真实行情暂不可用</strong>
+        <span id="noticeText">正在连接数据接口。</span>
+      </section>
+
+      <section class="sticky-filter etf-filters" aria-label="ETF筛选">
+        <div class="filter-scroll" data-filter="signal">
+          <button class="filter-chip is-active" data-value="all" type="button" aria-pressed="true">全部</button>
+          <button class="filter-chip" data-value="hot" type="button" aria-pressed="false">高热观察</button>
+          <button class="filter-chip" data-value="liquid" type="button" aria-pressed="false">流动性优先</button>
+        </div>
+        <label class="search-field">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+          <input id="searchInput" type="search" placeholder="搜索ETF代码、名称或关联板块" />
+        </label>
+      </section>
+
+      <section class="priority-section">
+        <div class="section-heading heading-outside">
+          <div><span class="section-kicker">今日优先</span><h2>优先观察</h2></div>
+          <span id="priorityCount">0 只</span>
+        </div>
+        <div class="priority-scroll" id="priorityList">
+          <div class="priority-empty">连接真实数据后生成优先观察项</div>
+        </div>
+      </section>
+
+      <section class="surface-card etf-board">
+        <div class="section-heading">
+          <div><span class="section-kicker">完整列表</span><h2>观察清单</h2></div>
+          <button class="sort-trigger" id="sortButton" type="button">按评分 ↓</button>
+        </div>
+        <div class="etf-list" id="etfList">
+          <div class="page-empty"><strong>等待真实行情</strong><span>当前不会使用模拟数据替代。</span></div>
+        </div>
+      </section>
+
+      <p class="research-note">观察分基于板块热度、资金、扩散度及ETF行情计算；数据仅供研究，不构成投资建议。</p>
+    </main>
+
+    <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+    <aside class="detail-sheet" id="detailSheet" role="dialog" aria-modal="true" aria-hidden="true" aria-label="ETF详情" inert>
+      <button class="sheet-handle" id="sheetClose" type="button" aria-label="关闭详情"><span></span></button>
+      <div id="sheetContent"></div>
+    </aside>
+
+    <nav class="bottom-navigation" aria-label="移动端主要导航">
+      <a href="./index.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 10v10h13V10M9 20v-6h6v6" /></svg><small>首页</small></a>
+      <a href="./heatmap.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="8" height="7" rx="1" /><rect x="13" y="4" width="8" height="11" rx="1" /><rect x="3" y="13" width="8" height="7" rx="1" /><rect x="13" y="17" width="8" height="3" rx="1" /></svg><small>板块</small></a>
+      <a href="./flows.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V8m5 10V4m5 14v-7m5 7V6" /></svg><small>资金</small></a>
+      <a class="is-active" href="./etf.html" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h5M8 16h7" /></svg><small>ETF</small></a>
+    </nav>
+
+    <script src="./src/config.js"></script>
+    <script type="module" src="./src/etf.js"></script>
+  </body>
+</html>

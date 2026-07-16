@@ -1,6 +1,16 @@
 import { getApiBase, getDataModeLabel } from './services/sector-api.js';
 
 const apiErrors = new Map();
+const SNAPSHOT_STALE_AFTER_MS = 30 * 60 * 1000;
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
 
 function ensureStatusBanner() {
   let banner = document.querySelector('#apiStatusBanner');
@@ -41,8 +51,8 @@ function renderApiBanner() {
   banner.innerHTML = `
     <div>
       <strong>数据接口不可用</strong>
-      <p>${latest.endpoint} · ${latest.message}</p>
-      ${latest.detail ? `<p class="api-error-detail">${formatErrorDetail(latest.detail)}</p>` : ''}
+      <p>${escapeHtml(latest.endpoint)} · ${escapeHtml(latest.message)}</p>
+      ${latest.detail ? `<p class="api-error-detail">${escapeHtml(formatErrorDetail(latest.detail))}</p>` : ''}
     </div>
     <button id="apiStatusDismiss" type="button">知道了</button>
   `;
@@ -53,16 +63,41 @@ function renderApiBanner() {
   });
 }
 
-function renderDataMode() {
+function formatTimestamp(value) {
+  const number = Number(value || 0);
+  if (!number) return '';
+  const timestamp = number < 1e12 ? number * 1000 : number;
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(timestamp));
+}
+
+function renderDataMode(payload = null) {
   const label = document.querySelector('#dataModeLabel');
   if (!label) return;
 
   const mode = getDataModeLabel();
   const apiBase = getApiBase();
-  label.textContent = mode === '真实接口' ? '真实数据接口' : '未连接后端';
-  label.title = mode === '真实接口'
-    ? `当前连接后端接口：${apiBase}`
-    : '当前没有 Mock 兜底；请配置 window.JIJIN_CONFIG.API_BASE 或 localStorage.JIJIN_API_BASE';
+  if (payload && mode === '真实接口') {
+    const timestamp = formatTimestamp(payload.updatedAt);
+    const rawTimestamp = Number(payload.updatedAt || 0);
+    const timestampMs = rawTimestamp ? (rawTimestamp < 1e12 ? rawTimestamp * 1000 : rawTimestamp) : 0;
+    const snapshot = String(payload.delivery || '').includes('snapshot');
+    const stale = payload.stale === true || (snapshot && timestampMs > 0 && Date.now() - timestampMs > SNAPSHOT_STALE_AFTER_MS);
+    label.textContent = stale ? '缓存快照' : '最新快照';
+    label.title = `${stale ? '当前显示最近成功快照' : '当前数据快照'}${timestamp ? ` · ${timestamp}` : ''}`;
+  } else {
+    label.textContent = mode === '真实接口' ? '真实数据接口' : '未连接后端';
+    label.title = mode === '真实接口'
+      ? `当前连接后端接口：${apiBase}`
+      : '当前没有人工行情兜底；请配置 window.JIJIN_CONFIG.API_BASE 或 localStorage.JIJIN_API_BASE';
+  }
 }
 
 function injectEtfQuoteStyles() {
@@ -85,6 +120,7 @@ function bindApiEvents() {
     if (!endpoint) return;
     apiErrors.delete(endpoint);
     renderApiBanner();
+    if (String(endpoint).includes('/api/sector/heatmap')) renderDataMode(event.detail?.payload || null);
   });
 }
 

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>基金大盘 · 资金流向</title>
+    <link rel="icon" type="image/svg+xml" href="./src/favicon.svg" />
+    <link rel="stylesheet" href="./src/mobile-pages.css" />
+  </head>
+  <body>
+    <header class="mobile-app-header">
+      <a class="mobile-brand" href="./index.html">基金大盘</a>
+      <nav class="desktop-nav" aria-label="主要导航">
+        <a href="./index.html">市场总览</a>
+        <a href="./heatmap.html">板块热力</a>
+        <a class="is-active" href="./flows.html" aria-current="page">资金流向</a>
+        <a href="./etf.html">ETF观察池</a>
+      </nav>
+      <div class="header-actions">
+        <span class="live-state" id="dataState"><i></i><span>连接中</span></span>
+        <button class="refresh-button" id="refreshBtn" type="button" aria-label="刷新资金数据">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 2 5.3M20 4v7h-7" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="mobile-page-shell">
+      <section class="page-intro">
+        <div>
+          <span class="page-kicker">FUND FLOW</span>
+          <h1>资金流向</h1>
+          <p>比较板块资金强度、价格表现与内部扩散，快速发现共振和背离。</p>
+        </div>
+        <time id="updatedAt">等待更新</time>
+      </section>
+
+      <section class="compact-notice is-hidden" id="dataNotice" role="status">
+        <strong>真实行情暂不可用</strong>
+        <span id="noticeText">正在连接数据接口。</span>
+      </section>
+
+      <section class="sticky-filter" aria-label="资金流向筛选">
+        <div class="filter-scroll" data-filter="type">
+          <button class="filter-chip is-active" data-value="industry" type="button" aria-pressed="true">行业</button>
+          <button class="filter-chip" data-value="concept" type="button" aria-pressed="false">概念</button>
+        </div>
+        <div class="filter-scroll" data-filter="sort">
+          <button class="filter-chip is-active" data-value="inflow" type="button" aria-pressed="true">净流入</button>
+          <button class="filter-chip" data-value="outflow" type="button" aria-pressed="false">净流出</button>
+          <button class="filter-chip" data-value="change" type="button" aria-pressed="false">涨跌幅</button>
+          <button class="filter-chip" data-value="breadth" type="button" aria-pressed="false">扩散度</button>
+        </div>
+      </section>
+
+      <section class="metric-strip" aria-label="资金摘要">
+        <article>
+          <span>流入居前</span>
+          <strong id="totalFund">--</strong>
+        </article>
+        <article>
+          <span>净流入板块</span>
+          <strong id="inflowCount">--</strong>
+        </article>
+        <article>
+          <span>重点信号</span>
+          <strong id="signalCount">--</strong>
+        </article>
+      </section>
+
+      <section class="signal-brief surface-card">
+        <div class="section-heading">
+          <div><span class="section-kicker">实时识别</span><h2>资金信号</h2></div>
+          <span id="signalSummary">等待行情</span>
+        </div>
+        <div class="signal-pill-list" id="signalPills">
+          <span class="empty-inline">连接真实数据后生成信号</span>
+        </div>
+      </section>
+
+      <section class="flow-board surface-card">
+        <div class="section-heading">
+          <div><span class="section-kicker">板块比较</span><h2 id="listTitle">主力净流入</h2></div>
+          <span id="resultCount">0 个板块</span>
+        </div>
+        <div class="flow-list" id="flowList">
+          <div class="page-empty"><strong>等待真实行情</strong><span>当前不会使用模拟数据替代。</span></div>
+        </div>
+      </section>
+
+      <p class="research-note">数据仅用于研究与信息展示，不构成任何投资建议。</p>
+    </main>
+
+    <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+    <aside class="detail-sheet" id="detailSheet" role="dialog" aria-modal="true" aria-hidden="true" aria-label="板块资金详情" inert>
+      <button class="sheet-handle" id="sheetClose" type="button" aria-label="关闭详情"><span></span></button>
+      <div id="sheetContent"></div>
+    </aside>
+
+    <nav class="bottom-navigation" aria-label="移动端主要导航">
+      <a href="./index.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 10v10h13V10M9 20v-6h6v6" /></svg><small>首页</small></a>
+      <a href="./heatmap.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="8" height="7" rx="1" /><rect x="13" y="4" width="8" height="11" rx="1" /><rect x="3" y="13" width="8" height="7" rx="1" /><rect x="13" y="17" width="8" height="3" rx="1" /></svg><small>板块</small></a>
+      <a class="is-active" href="./flows.html" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V8m5 10V4m5 14v-7m5 7V6" /></svg><small>资金</small></a>
+      <a href="./etf.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h5M8 16h7" /></svg><small>ETF</small></a>
+    </nav>
+
+    <script src="./src/config.js"></script>
+    <script type="module" src="./src/flows.js"></script>
+  </body>
+</html>
